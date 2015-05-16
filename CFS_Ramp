@@ -1,0 +1,420 @@
+% Ian Kleckner
+% Interdisciplinary Affective Science Lab (IASL)
+% Continuous Flash Suppression (CFS) initializer for contrast ramp expts
+%
+% Goal: Specify basic settings, and call CFS_ramp_experiment
+%
+% 2011/03/13 Start coding
+% 2011/04/22 Overhaul GUI, add DynamicTable
+% 2011/05/04 Prepare for Pilot program
+% 2011/06/02 RequestQuadrantPercent
+% 2011/07/14 Enhance memory usage to prevent crash, more ommand window output
+%            Frame the display -- Frame_BorderWidth, etc.
+%
+% TO DO
+%  Load instructions file (or similar)
+
+function varargout = CFS_Ramp(varargin)
+% CFS_Ramp M-file for CFS_Ramp.fig
+%      CFS_Ramp, by itself, creates a new CFS_Ramp or raises the existing
+%      singleton*.
+%
+%      H = CFS_Ramp returns the handle to a new CFS_Ramp or the handle to
+%      the existing singleton*.
+%
+%      CFS_Ramp('CALLBACK',hObject,eventData,handles,...) calls the local
+%      function named CALLBACK in CFS_Ramp.M with the given input arguments.
+%
+%      CFS_Ramp('Property','Value',...) creates a new CFS_Ramp or raises the
+%      existing singleton*.  Starting from the left, property value pairs are
+%      applied to the GUI before CFS_Ramp_OpeningFcn gets called.  An
+%      unrecognized property name or invalid value makes property application
+%      stop.  All inputs are passed to CFS_Ramp_OpeningFcn via varargin.
+%
+%      *See GUI Options on GUIDE's Tools menu.  Choose "GUI allows only one
+%      instance to run (singleton)".
+%
+% See also: GUIDE, GUIDATA, GUIHANDLES
+
+% Edit the above text to modify the response to help CFS_Ramp
+
+% Last Modified by GUIDE v2.5 05-May-2011 20:46:40
+
+% Begin initialization code - DO NOT EDIT
+gui_Singleton = 1;
+gui_State = struct('gui_Name',       mfilename, ...
+                   'gui_Singleton',  gui_Singleton, ...
+                   'gui_OpeningFcn', @CFS_Ramp_OpeningFcn, ...
+                   'gui_OutputFcn',  @CFS_Ramp_OutputFcn, ...
+                   'gui_LayoutFcn',  [] , ...
+                   'gui_Callback',   []);
+if nargin && ischar(varargin{1})
+    gui_State.gui_Callback = str2func(varargin{1});
+end
+
+if nargout
+    [varargout{1:nargout}] = gui_mainfcn(gui_State, varargin{:});
+else
+    gui_mainfcn(gui_State, varargin{:});
+end
+% End initialization code - DO NOT EDIT
+
+
+% --- Executes just before CFS_Ramp is made visible.
+function CFS_Ramp_OpeningFcn(hObject, eventdata, handles, varargin)
+% This function has no output args, see OutputFcn.
+% hObject    handle to figure
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+% varargin   command line arguments to CFS_Ramp (see VARARGIN)
+
+% Choose default command line output for CFS_Ramp
+handles.output = hObject;
+
+% Update handles structure
+guidata(hObject, handles);
+
+% UIWAIT makes CFS_Ramp wait for user response (see UIRESUME)
+% uiwait(handles.CFS_initializer);
+
+
+
+%% Input specs table
+SoftwareVersion = 'v.2011.11.15';
+setappdata(handles.CFS_initializer, 'SoftwareVersion', SoftwareVersion);
+set(handles.text_version, 'String', sprintf('Ian Kleckner, IASL, %s',SoftwareVersion));
+
+specsTable = DynamicTable(handles.table_input_specs);
+%specsTable.addRow(mode, name, value, description, value_Min, value_Max)
+
+specsTable.addRow('HEADING', 'Experimental Settings', NaN, '', NaN, NaN);
+specsTable.addRow('NUMERIC', 'NumTrials', 45, 'Number of trials to complete (1-Inf)', 1, Inf);
+specsTable.addRow('NUMERIC', 'InterTrialDelay', 3, 'Number of seconds between trials (Note: requires >2 sec to load textures)', 0, Inf);
+specsTable.addRow('NUMERIC', 'RequestQuadrantPercent', 100, 'Percent of trials in which participant must guess the quadrant', 0, 100);
+
+
+specsTable.addRow('FOLDER', 'StimuliFolder', 'data/faces/all_emotions/', 'Folder containing faces for CFS', NaN, NaN);
+specsTable.addRow('FOLDER', 'MondrianFolder', 'data/mondrian/', 'Folder containing Mondrian images for CFS', NaN, NaN);
+specsTable.addRow('FOLDER', 'NeutralFolder', 'data/faces/neutrals/', 'Folder containing Neutral Faces', NaN, NaN);
+specsTable.addRow('FOLDER', 'ScenarioFolder', 'data/scenarios/', 'Folder containing Scenarios', NaN, NaN);
+
+specsTable.addRow('HEADING', 'Display Settings', NaN, '', NaN, NaN);
+specsTable.addRow('NUMERIC', 'ContrastUpdateFrequency', 10, '(Hz) Contrast update frequency during ramp (divisor of monitor refresh rate. E.g., 60 or 60/2 or 60/3', 1, 120);
+specsTable.addRow('BOOLEAN', 'HideMousePointer', true, 'Hide the mouse pointer', false, true);
+specsTable.addRow('BOOLEAN', 'FullScreen', true, 'Display in full-screen mode', false, true);
+specsTable.addRow('NUMERIC', 'WindowBorder', 35, 'Percent window width or height (smaller of the two) for IMAGE border (1-49%)', 1, 49);
+
+
+specsTable.addRow('NUMERIC', 'Frame_BorderWidth', 32, 'Percent window width for FRAME border (1-49%)', 1, 49);
+specsTable.addRow('NUMERIC', 'Frame_BorderHeight', 39, 'Percent window height for FRAME border (1-49%)', 1, 49);
+specsTable.addRow('NUMERIC', 'Frame_LineWidth', 2, 'Width of frame rectangle (Pixels)', 1, Inf);
+
+specsTable.displayTable();
+setappdata(handles.CFS_initializer, 'specsTable', specsTable);
+
+% Current directory (to address a bug)
+setappdata(handles.CFS_initializer, 'currentDirectory', pwd);
+
+% Calculate the contrast function based on keyframes
+timeStart       = 0;
+timeEnd         = 10;
+
+% Dominant eye gets Mondrians
+piecewiseContrast_Dom = PiecewiseLine;
+piecewiseContrast_Dom.addKey(timeStart,0);
+piecewiseContrast_Dom.addKey(timeStart+5,-1);
+piecewiseContrast_Dom.addKey(timeEnd,-1);
+
+% Non-dominant eye gets face
+piecewiseContrast_NonDom = PiecewiseLine;
+piecewiseContrast_NonDom.addKey(timeStart,-2);
+piecewiseContrast_NonDom.addKey(timeStart+5,0);
+piecewiseContrast_NonDom.addKey(timeEnd,0);
+
+setappdata(handles.CFS_initializer, 'piecewiseContrast_Dom', piecewiseContrast_Dom);
+setappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom', piecewiseContrast_NonDom);
+
+clc;
+refresh_display( handles )
+
+
+% --- Outputs from this function are returned to the command line.
+function varargout = CFS_Ramp_OutputFcn(hObject, eventdata, handles) 
+% varargout  cell array for returning output args (see VARARGOUT);
+% hObject    handle to figure
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Get default command line output from handles structure
+varargout{1} = handles.output;
+
+
+function refresh_display( handles )
+%% Update graphical elements
+
+%% Display piecewise linear function
+piecewiseContrast_Dom = getappdata(handles.CFS_initializer, 'piecewiseContrast_Dom');
+piecewiseContrast_NonDom = getappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom');
+
+% Display table for either dominant or non-dominant mode
+if( get(handles.radiobutton_dominant_contrast, 'Value')==1 )
+    table_data = piecewiseContrast_Dom.getKeys();
+else
+    table_data = piecewiseContrast_NonDom.getKeys();
+end
+set(handles.table_piecewise, 'Data', table_data);
+
+% Plot values
+timeStart   = min(table_data(:,1));
+timeEnd     = max(table_data(:,1));
+xvalues     = linspace(timeStart, timeEnd, 50);
+
+%hax = subplot(1,1,1,'Parent', handles.panel_display_contrast);
+%hax = axes('Parent', handles.panel_display_contrast);
+hax = handles.axes1;
+hold(hax, 'off');
+plot(hax, xvalues, piecewiseContrast_Dom.getY(xvalues), '-k');
+hold(hax, 'all');    
+plot(hax, xvalues, piecewiseContrast_NonDom.getY(xvalues), '--r');
+legend({'Dominant', 'Non-Dominant'}, 'Location', 'NorthOutside');
+
+% Plot key values from the table, that determine the lines
+keyXY = piecewiseContrast_Dom.getKeys();
+plot(hax, keyXY(:,1), keyXY(:,2), 'ok');
+
+keyXY = piecewiseContrast_NonDom.getKeys();
+plot(hax, keyXY(:,1), keyXY(:,2), 'sr');
+
+xlabel(hax, 'Time (sec)');
+ylabel(hax, 'Log_{10}(Contrast)');
+
+
+%% Specifications table
+specsTable = getappdata(handles.CFS_initializer, 'specsTable');
+specsTable.displayTable();
+
+
+% --- Executes on button press in button_start_CFS.
+function button_start_CFS_Callback(hObject, eventdata, handles)
+% hObject    handle to button_start_CFS (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+%% Start the CFS_Ramp program
+CFS_specs.PPid = get(handles.edit_ppid, 'String');
+
+if( get(handles.button_left_eye, 'Value') )
+    CFS_specs.DominantEyeString = 'LEFT';
+else
+    CFS_specs.DominantEyeString = 'RIGHT';
+end
+
+% Piecewise contrasts
+piecewiseContrast_Dom = getappdata(handles.CFS_initializer, 'piecewiseContrast_Dom');
+CFS_specs.piecewiseContrast_Dom     = piecewiseContrast_Dom;
+
+piecewiseContrast_NonDom = getappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom');
+CFS_specs.piecewiseContrast_NonDom  = piecewiseContrast_NonDom;
+
+
+specsTable = getappdata(handles.CFS_initializer, 'specsTable');
+
+CFS_specs.NumTrials                 = specsTable.getValue('NumTrials');
+CFS_specs.InterTrialDelay           = specsTable.getValue('InterTrialDelay');
+CFS_specs.RequestQuadrantPercent    = specsTable.getValue('RequestQuadrantPercent');
+
+CFS_specs.StimuliFolder             = specsTable.getValue('StimuliFolder');
+CFS_specs.MondrianFolder            = specsTable.getValue('MondrianFolder');
+CFS_specs.NeutralFolder             = specsTable.getValue('NeutralFolder');
+CFS_specs.ScenarioFolder            = specsTable.getValue('ScenarioFolder');
+
+CFS_specs.ContrastUpdateFrequency   = specsTable.getValue('ContrastUpdateFrequency');
+CFS_specs.HideMousePointer          = specsTable.getValue('HideMousePointer');
+
+CFS_specs.FullScreenMode            = specsTable.getValue('FullScreen');
+CFS_specs.MinBorderPercent          = specsTable.getValue('WindowBorder');
+
+% Framing the image
+CFS_specs.Frame_BorderWidth         = specsTable.getValue('Frame_BorderWidth');
+CFS_specs.Frame_BorderHeight        = specsTable.getValue('Frame_BorderHeight');
+CFS_specs.Frame_LineWidth           = specsTable.getValue('Frame_LineWidth');
+
+
+CFS_specs.currentDirectory          = getappdata(handles.CFS_initializer, 'currentDirectory');
+CFS_specs.SoftwareVersion           = getappdata(handles.CFS_initializer, 'SoftwareVersion');
+
+% Start the experiment using these specifications
+CFS_ramp_experiment( CFS_specs )
+
+
+% --- Executes when entered data in editable cell(s) in table_input_specs.
+function table_input_specs_CellEditCallback(hObject, eventdata, handles)
+% hObject    handle to table_input_specs (see GCBO)
+% eventdata  structure with the following fields (see UITABLE)
+%	Indices: row and column indices of the cell(s) edited
+%	PreviousData: previous data for the cell(s) edited
+%	EditData: string(s) entered by the user
+%	NewData: EditData or its converted form set on the Data property. Empty if Data was not changed
+%	Error: error string when failed to convert EditData to appropriate value for Data
+% handles    structure with handles and user data (see GUIDATA)
+%% Data in the table has changed
+specsTable = getappdata(handles.CFS_initializer, 'specsTable');
+specsTable.readTable();
+refresh_display(handles);
+
+
+% --- Executes on button press in button_add_point.
+function button_add_point_Callback(hObject, eventdata, handles)
+% hObject    handle to button_add_point (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+%% Add row to table
+table_data = get(handles.table_piecewise, 'Data');
+
+Nkeys = size(table_data,1);
+table_data(Nkeys+1,:) = table_data(Nkeys,:) + [1, -1];
+set(handles.table_piecewise, 'Data', table_data);
+
+% Update piecewise function
+Nkeys = size(table_data,1);
+  
+piecewiseContrast = PiecewiseLine;
+for k = 1:Nkeys
+    piecewiseContrast.addKey(table_data(k,1), table_data(k,2));
+end
+
+% Save into either dominant or non-dominant mode
+if( get(handles.radiobutton_dominant_contrast, 'Value')==1 )
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_Dom', piecewiseContrast);
+else
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom', piecewiseContrast);
+end
+
+refresh_display(handles);
+
+% --- Executes on button press in button_reset.
+function button_reset_Callback(hObject, eventdata, handles)
+% hObject    handle to button_reset (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+%% Reset the contrast function based on keyframes
+timeStart       = 0;
+timeEnd         = 5;
+piecewiseContrast = PiecewiseLine;
+piecewiseContrast.addKey(timeStart,0);
+piecewiseContrast.addKey(timeStart+1,0);
+piecewiseContrast.addKey(timeEnd,-5);
+
+% Save into either dominant or non-dominant mode
+if( get(handles.radiobutton_dominant_contrast, 'Value')==1 )
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_Dom', piecewiseContrast);
+else
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom', piecewiseContrast);
+end
+refresh_display(handles);
+
+
+% --- Executes when entered data in editable cell(s) in table_piecewise.
+function table_piecewise_CellEditCallback(hObject, eventdata, handles)
+% hObject    handle to table_piecewise (see GCBO)
+% eventdata  structure with the following fields (see UITABLE)
+%	Indices: row and column indices of the cell(s) edited
+%	PreviousData: previous data for the cell(s) edited
+%	EditData: string(s) entered by the user
+%	NewData: EditData or its converted form set on the Data property. Empty if Data was not changed
+%	Error: error string when failed to convert EditData to appropriate value for Data
+% handles    structure with handles and user data (see GUIDATA)
+
+%% Calculate the contrast function based on keyframes
+
+table_data  = get(handles.table_piecewise, 'Data');
+Nkeys       = size(table_data,1);
+
+piecewiseContrast = PiecewiseLine;
+for k = 1:Nkeys
+    piecewiseContrast.addKey(table_data(k,1), table_data(k,2));
+end
+
+% Save into either dominant or non-dominant mode
+if( get(handles.radiobutton_dominant_contrast, 'Value')==1 )
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_Dom', piecewiseContrast);
+else
+    setappdata(handles.CFS_initializer, 'piecewiseContrast_NonDom', piecewiseContrast);
+end
+
+refresh_display(handles);
+
+
+
+function edit_ppid_Callback(hObject, eventdata, handles)
+% hObject    handle to edit_ppid (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    structure with handles and user data (see GUIDATA)
+
+% Hints: get(hObject,'String') returns contents of edit_ppid as text
+%        str2double(get(hObject,'String')) returns contents of edit_ppid as a double
+
+
+% --- Executes during object creation, after setting all properties.
+function edit_ppid_CreateFcn(hObject, eventdata, handles)
+% hObject    handle to edit_ppid (see GCBO)
+% eventdata  reserved - to be defined in a future version of MATLAB
+% handles    empty - handles not created until after all CreateFcns called
+
+% Hint: edit controls usually have a white background on Windows.
+%       See ISPC and COMPUTER.
+if ispc && isequal(get(hObject,'BackgroundColor'), get(0,'defaultUicontrolBackgroundColor'))
+    set(hObject,'BackgroundColor','white');
+end
+
+
+% --- Executes when selected object is changed in panel_contrast_modification_mode.
+function panel_contrast_modification_mode_SelectionChangeFcn(hObject, eventdata, handles)
+% hObject    handle to the selected object in panel_contrast_modification_mode 
+% eventdata  structure with the following fields (see UIBUTTONGROUP)
+%	EventName: string 'SelectionChanged' (read only)
+%	OldValue: handle of the previously selected object or empty if none was selected
+%	NewValue: handle of the currently selected object
+% handles    structure with handles and user data (see GUIDATA)
+refresh_display(handles);
+
+
+% --- Executes when selected cell(s) is changed in table_input_specs.
+function table_input_specs_CellSelectionCallback(hObject, eventdata, handles)
+% hObject    handle to table_input_specs (see GCBO)
+% eventdata  structure with the following fields (see UITABLE)
+%	Indices: row and column indices of the cell(s) currently selecteds
+% handles    structure with handles and user data (see GUIDATA)
+%% Data in the table has been clicked
+
+% Check if something has been clicked
+if( ~isempty(eventdata.Indices) )
+    
+    % Read what has been clicked in the table
+    row         = eventdata.Indices(1);
+    table_data  = get(handles.table_input_specs, 'Data');
+    paramName   = table_data{row,1};
+    
+    % Check what type of parameter this is, from the dynamic table
+    specsTable  = getappdata(handles.CFS_initializer, 'specsTable');
+    
+    try
+        mode        = specsTable.getMode(paramName);
+    catch
+        % Parameter not found
+        return
+    end
+
+    % If it is a folder, then select via GUI window
+    if( strcmp(mode, 'FOLDER') )
+        directoryName = uigetdir('.', 'Select folder...');
+
+        % If the path WAS selected...
+        if( ~isequal(directoryName,0) )
+            % ...then commit the change
+            table_data{row, 2} = directoryName;
+            set(handles.table_input_specs, 'Data', table_data);
+            specsTable.readTable();
+            refresh_display(handles);
+        end
+    end
+end
