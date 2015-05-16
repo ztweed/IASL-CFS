@@ -1,0 +1,74 @@
+classdef Set < handle
+    % Set class: Holds a set of data which can be accessed via various
+    % algorithms (e.g., random sampling without replacement)
+    %  Subclass of "handle" makes each new instance of "Set" as a new POINTER
+    % to the instance, which can be modified in any context
+    %   Initially made to store textures of images
+    %
+    % Ian Kleckner
+    % Interdisciplinary Affective Science Lab (IASL)
+    % Continuous Flash Suppression (CFS)
+    %
+    % 2011/03/15 Start coding        
+    
+    
+    properties (SetAccess = private)
+        name = 'NoName';     % Name of Set
+        
+        N                   = 0;  % Total number of elements
+        element             = {}; % Elements in the set
+        
+        irandom             = 1;  % Current index in random_index array
+        random_index        = []; % Array of indices which have been accessed already
+        
+    end
+    
+    methods
+        function addElement( obj, e )
+            %% Add an element to the set
+            obj.N = obj.N+1;
+            obj.element{ obj.N } = e;
+            
+            % Since a new element is added, must reset the random sampling
+            % with replacement
+            obj.resetRandomSample();
+        end
+        
+        function e = getElement( obj, index )
+            %% Return element from given index
+            e = obj.element{ index };
+            
+        end
+        
+        function [e, index] = getElementRandom( obj )
+            %% Get an element randomly (with replacement)
+            % i.e., pick any element randomly (no contraints)
+            
+            % Access random element via random index
+            e = obj.element{ randi(obj.N,1) };
+        end
+        
+        function [e, index] = getElementRandomNoReplacement( obj )
+            %% Get an element randomly (without replacement)
+            % i.e., randomly pick each element once, before picking any
+            % element a second time
+            index   = obj.random_index(obj.irandom);
+            e       = obj.element{ index };            
+            
+            % If all elements have been sampled, then reset
+            if( obj.irandom == obj.N )
+                obj.resetRandomSample();
+                
+            else
+                % Increment the index for the next random sampling
+                obj.irandom = obj.irandom+1;
+            end
+        end            
+        
+        function resetRandomSample( obj )
+            %% Reset the array itemizing accessed indices            
+            obj.random_index = randperm(obj.N);
+            obj.irandom = 1;            
+        end
+    end
+end
