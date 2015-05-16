@@ -1,0 +1,1007 @@
+classdef DisplaySession < handle
+    %DisplaySession For a sequence of stereo-image presntations, with user input    
+    % Ian Kleckner
+    % Interdisciplinary Affective Science Lab (IASL)
+    % Continuous Flash Suppression (CFS)
+    %
+    % 2011/02/19 Start coding
+    % 2011/02/23 Move getDestinationRect() to separate file
+    %            Add StereoImageTimeSeries
+    % 2011/03/13 Change all instances of left -> dom, and right -> nondom
+    % 2011/05/04 Store input from SITS, if necessary
+    % 2011/05/05 Add DELAY mode
+    % 2011/05/08 Change pp_response_value from cell {} to array []
+    %            Change keyboard input to number pad too
+    %
+    % TODO
+    %  - Store the start time for the program ?
+    %  - Read input file
+    %  - Change strings 'TIMESERIES' to a variable TIMESERIES that equals 'TIMESERIES' (to catch typos)
+    
+    
+    properties (SetAccess = private)
+        %% These can only be set via functions (but can be read directly via "."
+        
+        % ------------- Variables for defining available steps -----------
+        % Information about the steps to display
+        Nsteps          = 0;    % Number of steps in session        
+        step_type       = {};   % String identifying INPUT, NAVIGATE, or TIMESERIES        
+        
+        % For INPUT or NAVIGATE steps, that each show a single image
+        filename_dom   = {};   % Array of image filenames for dom eye
+        filename_nondom  = {};
+        
+        image_dom      = {};   % Array of loaded images (using imread())
+        image_nondom     = {};
+        
+        texture_dom     = {};   % Textures created for Psychophysics Toolbox
+        texture_nondom   = {};
+        
+        responseKeys    = [];
+        responseValues  = [];
+        
+        nextKey     = NaN;
+        previousKey = NaN;
+        
+        % For DELAY step
+        delay_time      = [];       % Delay time in seconds (only applies for DELAY step)
+        
+        % For TIMESERIES step type
+        SITS        = {}; % Cell array of the StereImageTimeSeries instances        
+        
+        
+        %response_value          = [];   % Value of response key pressed by user
+        %response_time           = [];   % Time for response after slide is shown
+        
+        %query_rotation          = [];
+        %query_quadrant          = [];
+        %query_contrast_log10    = [];
+        
+        % --------- Variables for participant experience through session
+        % The participant (pp) may move forward/backward through steps, and so each of
+        % these displays are logged with their time of display
+        current_step        = 1;    % Current step number
+        
+        %Nsteps_displayed    = 0;    % Steps are marked once they are displayed
+        %steps_displayed     = [];   % Order of each step        
+        
+        start_tic           = 0;    % Holds the "tic" command upon display of first step
+        %etime_at_step_start = [];   % Time at which each step was started
+        
+        pp_Nsteps                       = 0;    % Number of steps the participant has traversed
+        pp_steps_traversed              = [];   % Each element is the step number displayed
+        pp_etime                        = [];   % Holds time at which each step was started
+        
+        pp_response_value               = [];   % Value of response key pressed
+        pp_response_time                = [];   % Time for response after slide is shown
+        pp_SITS_specs                   = {};   % Cell array of specifications for each instance of SITS
+        pp_query_image_rotation         = [];   % Rotation of the query image in a StereoImageTimeSeries
+        pp_query_image_quadrant         = [];   % Quadrant
+        pp_query_image_contrastlog10    = [];   % Contrast
+        
+        % --------------- Variables for display ---------------------------
+        % Stereo / mono mode (Note: program only works in stereo, now)        
+        presentation_mode   = {};   % Cell array of presentation mode (stereo / full)
+        is_stereo           = {};   % (Boolean) the current step is stereo mode        
+        stereo_mode         = 4;    % Stereo-mode from PTB (4=>Split display on single monitor)        
+        
+        LEFT_DISPLAY        = 0;    % Left display is #0 (for stereo-mode)
+        RIGHT_DISPLAY       = 1;    % Right display is #1 (for stereo-mode)
+        
+        DOM_DISPLAY         = 0;    % The dominant side (0,1)=(left,right)
+        NONDOM_DISPLAY      = 1;        
+        
+        % How the class displays the steps using PTB
+        WINDOW          = NaN;      % Window handle for psychophysics toolbox
+                                    % Required for creating textures
+
+        % This specifies the percentage of the window width (or height)
+        %  used to border each image (must be < 50)
+        % Some images need enlargement, and some reduction, to fit the window
+        minBorderPercent    = 10;
+        
+        % --------------- Frame rectangle around all images (2011/07/14) --
+        % This is to ensure proper 
+        DRAW_FRAMING_RECTANGLE  = true;            % (true/false) Draw the rectangle
+        frame_Color             = [255 255 255];    % 0-255 [R G B] color triplet
+        frame_Width             = 3;                % Width of rectangle line in pixels
+        frame_Rect              = [0 0 1 1];        % RECT = [X_Left, Y_Top, X_Width, Y_Height]
+        
+    end
+        
+    methods
+        function obj = DisplaySession( WINDOW )
+            %% Constructor function (if a PTB WINDOW handle already exists)           
+            if( nargin == 1 )
+                obj.WINDOW = WINDOW;
+            end
+            
+            if( IsWin )
+                % KbDemo
+                % 1 of 4.  Testing KbCheck and KbName: press a key to see its number.
+                % Press the escape key to proceed to the next demo.
+                % You pressed key 97 which is 1
+                % You pressed key 98 which is 2
+                % You pressed key 99 which is 3
+                % You pressed key 100 which is 4
+                % You pressed key 101 which is 5
+                % You pressed key 102 which is 6
+                % You pressed key 103 which is 7
+                % You pressed key 104 which is 8
+                % You pressed key 105 which is 9
+                % You pressed key 96 which is 0
+                % 1234567890
+                % You pressed key 13 which is Return
+                % You pressed key 49 which is 1!
+                % You pressed key 50 which is 2@
+                % You pressed key 51 which is 3#
+                % You pressed key 52 which is 4$
+                % You pressed key 53 which is 5%
+                % You pressed key 54 which is 6^
+                % You pressed key 55 which is 7&
+                % You pressed key 56 which is 8*
+                % You pressed key 57 which is 9(
+                % You pressed key 48 which is 0)
+                % You pressed key 27 which is ESCAPE
+                
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('5'), ... Keypad 5
+                                KbName('4'), ... Keypad 4
+                                KbName('1'), ... Keypad 1
+                                KbName('2'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
+
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
+
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');
+                
+            elseif( ismac )
+                % >> KbDemo
+                % 1 of 4.  Testing KbCheck and KbName: press a key to see its number.
+                % Press the escape key to proceed to the next demo.
+                % You pressed key 89 which is 1
+                % You pressed key 90 which is 2
+                % You pressed key 91 which is 3
+                % You pressed key 92 which is 4
+                % You pressed key 94 which is 6
+                % You pressed key 95 which is 7
+                % You pressed key 96 which is 8
+                % You pressed key 97 which is 9
+                % You pressed key 98 which is 0
+                % 1234567890
+                % You pressed key 88 which is ENTER
+                % You pressed key 30 which is 1!
+                % You pressed key 31 which is 2@
+                % You pressed key 32 which is 3#
+                % You pressed key 33 which is 4$
+                % You pressed key 34 which is 5%
+                % You pressed key 35 which is 6^
+                % You pressed key 36 which is 7&
+                % You pressed key 37 which is 8*
+                % You pressed key 38 which is 9(
+                % You pressed key 39 which is 0)
+                % You pressed key 80 which is LeftArrow
+                % You pressed key 79 which is RightArrow
+                % You pressed key 82 which is UpArrow
+                % You pressed key 81 which is DownArrow
+                % You pressed key 41 which is ESCAPE
+                
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('5'), ... Keypad 5
+                                KbName('4'), ... Keypad 4
+                                KbName('1'), ... Keypad 1
+                                KbName('2'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
+
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
+
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');
+                
+            elseif( isLinux )
+                % TODO % Read keybidning info from a settings file
+                %KbName('UnifyKeyNames');
+
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('KP_Begin'), ... Keypad 5
+                                KbName('KP_Left'), ... Keypad 4
+                                KbName('KP_End'), ... Keypad 1
+                                KbName('KP_Down'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
+
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
+
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');           
+            end
+        end
+        
+        function addStep( obj, step_type, presentation_mode, filename_dom, filename_nondom, varargin )
+            %% Adds a step to the session            
+            % addStep( step_type, presentation_mode, DOM_IMAGE, NONDOM_IMAGE );
+            %
+            % step_type
+            %  (a) NAVIGATE      -> Navigate through steps forward/backward
+            %  (b) INPUT         -> Wait for valid input from keyboard (1-4, or Esc)
+            %                       then go to next step in display loop
+            %  (c) DELAY         -> Show image, then wait a delay
+            %                       Specified delay (sec) with additional final argument
+            %  (d) EXIT          -> Exit the display loop
+            %
+            % presentation_mode
+            %  STEREO        -> Stereo display (Only option at this point)
+            %
+            % DOM_IMAGE    -> Specify filename for image on dominant eye
+            %
+            % NONDOM_IMAGE   -> Specify filename for image on nondominant eye
+            
+            % Must have valid WINDOW before steps can be added
+            % (needed for textures)
+            if( isnan(obj.WINDOW) )
+                error('Create and set window before loading images. Window is required for textures');
+            end
+            
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Set the step type
+            obj.step_type{s} = step_type;
+            
+            if( strcmp(step_type,'DELAY') )
+                if( nargin ~= 6 || ~isnumeric(varargin{1}) )
+                    error('Must supply delay_time in seconds for DELAY step (last argument to addStep())');
+                else
+                    obj.delay_time(s) = varargin{1};
+                end
+            end
+            
+            switch step_type
+                case {'INPUT', 'NAVIGATE', 'DELAY'}
+                       
+                    % Load the dom image
+                    obj.filename_dom{s}    = filename_dom;
+                    obj.image_dom{s}       = imread(filename_dom);
+                    obj.texture_dom{s}     = Screen('MakeTexture', obj.WINDOW, obj.image_dom{s});
+
+
+                    % Get presentation mode
+                    % TODO % Parse presentation mode for stereo/mono
+                    obj.presentation_mode{s}    = presentation_mode;
+
+                    % Check if this step is stero mode or not
+                    obj.is_stereo{s} = strcmpi(presentation_mode,'STEREO');
+
+                    % Only save the nondom image if it is stereo mode
+                    if( obj.is_stereo{s} )                
+                        % Load the image
+                        obj.filename_nondom{s}   = filename_nondom;
+                        obj.image_nondom{s}      = imread(filename_nondom);
+                        obj.texture_nondom{s}    = Screen('MakeTexture', obj.WINDOW, obj.image_nondom{s});
+
+                    % No image to load for nondom
+                    else
+                        obj.filename_nondom{s}   = 'NULL';
+                        obj.image_nondom{s}      = NaN;
+                        obj.texture_nondom{s}    = NaN;
+                    end           
+                    
+                case 'TIMESERIES'
+                    error('Use addTimeSeries(SITS) instead');
+                    
+                case 'EXIT'
+                    % Nothing more to store
+                    
+                otherwise
+                    error('Invalid step type specified');
+                    
+            end
+        end
+        
+        %{
+        function addLinkedTimeSeries( obj, SITS )
+            %% Add a linked stereo-image time series to the display session
+            % This is NOT a new copy, but a link to the input instance
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Do NOT copy the % Copy the submitted time series, so it can hold unique values
+            % regarding items which are displayed (e.g., random quadrants)
+            obj.step_type{s}    = 'TIMESERIES';            
+            obj.SITS{s}         = SITS;
+            
+        end
+        %}
+        
+        function addNewTimeSeries( obj, SITS )
+            %% Add a NEW stereo-image time series to the display session
+            % This is a copy of the input time series
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Copy the submitted time series, so it can hold unique values
+            % regarding items which are displayed (e.g., random quadrants)
+            obj.step_type{s}    = 'TIMESERIES';            
+            obj.SITS{s}         = SITS.copy();
+            
+        end
+        
+        function [WINDOW, windowRect] = createWindow( obj, rect_windowed, stereoMode )
+            %% Create a new PTB window
+            % rect_windowed = size of the display window
+            %  2D coordinates of top-left and bottom-right corner
+            %  For full-screen, set this to [], as below
+            
+            % If no arguments are given, use a full-screen non-stereo window
+            if( nargin == 0 )
+                rect_windowed = [];
+                stereoMode = 0;
+            end
+            
+            try
+            
+                % COPY FROM PTB StereoDemo.m
+                % Get the list of Screens and choose the one with the highest screen number.
+                % Screen 0 is, by definition, the display with the menu bar. Often when
+                % two monitors are connected the one without the menu bar is used as
+                % the stimulus display.  Chosing the display with the highest dislay number is
+                % a best guess about where you want the stimulus displayed.
+                scrnNum = max(Screen('Screens'));
+
+                %{
+                % Windows-Hack: If mode 4 or 5 is requested, we select screen zero
+                % as target screen: This will open a window that spans multiple
+                % monitors on multi-display setups, which is usually what one wants
+                % for this mode.
+                if IsWin & (stereoMode==4 | stereoMode==5)
+                   scrnNum = 0;
+                end
+                %}
+
+                % Dual display dual-window stereo requested?
+                if stereoMode == 10
+                    % Yes. Do we have at least two separate displays for both views?
+                    if length(Screen('Screens')) < 2
+                        error('Sorry, for stereoMode 10 you''ll need at least 2 separate display screens in non-mirrored mode.');
+                    end
+
+                    if ~IsWin
+                        % Assign left-eye view (the master window) to main display:
+                        scrnNum = 0;
+                    else
+                        % Assign left-eye view (the master window) to main display:
+                        scrnNum = 1;
+                    end
+                end
+
+                % Open double-buffered onscreen window with the requested
+                % stereo mode:
+                window_black = BlackIndex(scrnNum);
+                window_white = WhiteIndex(scrnNum);
+                window_gray  = round(window_black + (window_white - window_black)/2);
+                [WINDOW, windowRect]=Screen('OpenWindow', scrnNum, window_gray, rect_windowed, [], [], stereoMode);            
+                obj.WINDOW = WINDOW;
+
+
+                if stereoMode == 10
+                    % In dual-window, dual-display mode, we open the slave window on
+                    % the secondary screen. Please note that, after opening this window
+                    % with the same parameters as the "master-window", we won't touch
+                    % it anymore until the end of the experiment. PTB will take care of 
+                    % managing this window automatically as appropriate for a stereo
+                    % display setup. That is why we are not even interested in the window
+                    % handles of this window:
+                    if IsWin
+                        slaveScreen = 2;
+                    else
+                        slaveScreen = 1;
+                    end
+                    Screen('OpenWindow', slaveScreen, BlackIndex(slaveScreen), [], [], [], stereoMode);
+                end
+
+                % Set up alpha-blending for smooth (anti-aliased) drawing of dots:
+                Screen('BlendFunction', WINDOW, 'GL_SRC_ALPHA', 'GL_ONE_MINUS_SRC_ALPHA');
+                
+                
+                % Now that the window is set, update textures
+                obj.updateTextures();
+                
+            catch
+                % Executes in case of an error: Closes onscreen window:
+                Screen('CloseAll');
+                psychrethrow(psychlasterror);
+            end
+        end
+        
+        
+        function displayCurrentStep( obj )
+            %% Displays the current step
+            s = obj.current_step;
+            
+            quadrant = 0;
+            
+            % Load the image
+            switch obj.step_type{s}
+                case {'INPUT', 'NAVIGATE', 'DELAY'}
+                    
+                    % Display the step
+                    if( obj.is_stereo{s} )
+                        % Draw dom image
+                        Screen('SelectStereoDrawBuffer', obj.WINDOW, obj.DOM_DISPLAY);
+                        Screen('DrawTexture', obj.WINDOW, obj.texture_dom{s}, [], ...
+                            obj.getDestinationRect( obj.image_dom{s}, quadrant ));
+                        
+                        % Draw a framing rectangle, if desired
+                        if( obj.DRAW_FRAMING_RECTANGLE )
+                            % Display a rectangular frame on top of the texture                            
+                            Screen('FrameRect', obj.WINDOW, obj.frame_Color, obj.frame_Rect, obj.frame_Width);
+                        end
+
+                        % Draw nondom image
+                        Screen('SelectStereoDrawBuffer', obj.WINDOW, obj.NONDOM_DISPLAY );                
+                        Screen('DrawTexture', obj.WINDOW, obj.texture_nondom{s}, [], ...
+                            obj.getDestinationRect( obj.image_nondom{s}, quadrant ));
+                                                                        
+                        % Draw a framing rectangle, if desired
+                        if( obj.DRAW_FRAMING_RECTANGLE )
+                            % Display a rectangular frame on top of the texture                            
+                            Screen('FrameRect', obj.WINDOW, obj.frame_Color, obj.frame_Rect, obj.frame_Width);
+                        end
+
+                    else
+                        % Display full mode (not stereo)
+                        % TODO % Display full mode (not stereo) - not sure
+                        % how to do this without creating a new Screen :-/
+                    end                    
+            end
+            
+            % Display the image
+            switch obj.step_type{s}
+                case {'INPUT', 'NAVIGATE'}
+                    % Update the display
+                    Screen('Flip', obj.WINDOW );
+
+                    % Mark the time at which this step was started
+                    Nsd                         = obj.pp_Nsteps+1;
+                    obj.pp_Nsteps               = Nsd;
+                    obj.pp_steps_traversed(Nsd) = s;
+
+                    if( Nsd == 1 )
+                        obj.start_tic                   = tic;
+                        obj.pp_etime(Nsd)    = 0;
+                    else
+                        obj.pp_etime(Nsd)    = toc(obj.start_tic);
+                    end
+                                                            
+                    % Now wait to store input                    
+                    received_input = false;
+                    
+                    % Log the start time
+                    response_time_start = tic;
+                    
+                    % Wait until all keys are released
+                    while KbCheck; end
+                    
+                    while ~received_input
+    
+                        % Pause may be helpful for timing
+                        %pause(0.01);
+
+                        % Check the state of the keyboard.
+                        [ keyIsDown, seconds, keyCode ] = KbCheck;        
+                        if( keyIsDown )
+
+                            % NAVIGATE steps can move slides forward or
+                            % backward
+                            if( strcmpi(obj.step_type{s}, 'NAVIGATE') )
+                                if( keyCode(obj.nextKey) )
+                                    % Mark the user proceeds
+                                    %  This will be over-written if the
+                                    %  navigation repeats this step "s"
+                                    %obj.response_value(s)    = 1;
+                                    %obj.response_time(s)     = toc(response_time_start);
+                                    
+                                    received_input = true;
+                                    obj.nextStepDisplay();              
+
+                                elseif( keyCode(obj.previousKey) )
+                                    % Mark the user retredes
+                                    %  This will be over-written if the
+                                    %  navigation repeats this step "s"
+                                    %obj.response_value(s)    = -1;
+                                    %obj.response_time(s)     = toc(response_time_start);
+                                    
+                                    received_input = true;
+                                    
+                                    % Go to prior step, then re-display
+                                    %  This re-display ensures the user
+                                    %  cannot exit the display loop by
+                                    %  going too far backwards
+                                    obj.previousStep();
+                                    obj.displayCurrentStep();
+                                else
+                                    % Invalid key
+                                    
+                                end
+                                
+                            % If this step is for INPUT, then check for a
+                            % valid keypress
+                            elseif( strcmpi(obj.step_type{s}, 'INPUT') )
+                                % Check each valid responseKey
+                                for k = 1:length(obj.responseKeys)                                    
+                                    if( keyCode(obj.responseKeys{k}) )
+                                        % Found a valid key
+                                        %  Store the response value
+                                        %obj.response_value(s)    = responseValues(k);
+                                        %obj.response_time(s)     = toc(response_time_start);
+                                        
+                                        obj.pp_response_value(obj.pp_Nsteps)    = obj.responseValues(k);
+                                        obj.pp_response_time(obj.pp_Nsteps)     = toc(response_time_start);
+                                        
+                                        received_input = true;
+                                        obj.nextStepDisplay();
+                                        
+                                        % Exit the for loop early
+                                        break;
+                                    end                                    
+                                end
+                            end
+                        end
+                    end
+                    
+                    % Show the current step, if there 
+                    %if( obj.current_step < obj.Nsteps && ~keyCode(escapeKey) )
+                    %    obj.displayCurrentStep();
+                    %end        
+                    
+                case 'DELAY'
+                    % Update the display
+                    Screen('Flip', obj.WINDOW );
+                    
+                    % Wait some time
+                    WaitSecs(obj.delay_time(s));
+                    
+                    % Proceed to next step
+                    obj.nextStepDisplay();
+                    
+                case 'TIMESERIES'
+                    % Mark the time at which this step was started
+                    Nsd                         = obj.pp_Nsteps+1;
+                    obj.pp_Nsteps               = Nsd;
+                    obj.pp_steps_traversed(Nsd) = s;
+
+                    if( Nsd == 1 )
+                        obj.start_tic                   = tic;
+                        obj.pp_etime(Nsd)    = 0;
+                    else
+                        obj.pp_etime(Nsd)    = toc(obj.start_tic);
+                    end
+                    
+                    % Call the timeseries display
+                    obj.SITS{s}.displayCurrentStep();
+                    
+                    % Store query image info from the timeseries sequence                    
+                    obj.pp_SITS_specs{obj.pp_Nsteps} = obj.SITS{s}.getSpecs();
+                    
+                    % Store the input from the participant
+                    [inputReceived, keyPress_Time, keyPress_Value] = obj.SITS{s}.getInput();
+                    if( inputReceived )
+                        obj.pp_response_value(s)   = keyPress_Value;
+                        obj.pp_response_time(s)    = keyPress_Time;                                                
+                    end
+                                       
+                    % Display the next step
+                    if( obj.current_step < obj.Nsteps )
+                        obj.nextStep();
+                        obj.displayCurrentStep();
+                    end
+                    
+                case 'EXIT'
+                    % Merely exit this function
+                    
+                otherwise
+                    error('Attempted to display an invalid step type');
+            end
+            
+            
+        end
+        
+        function displayStep( obj, step )
+            %% Return to first step
+            obj.current_step = step;
+            obj.displayCurrentStep();            
+        end
+        
+        function flushMostRecentSITSTextures(obj)
+            %% Flush ONLY the most recent SITS textures
+            for s = obj.Nsteps:-1:1
+                % Check if the SITS exists before trying to flush it
+               if( length(obj.SITS) >= s && isa(obj.SITS{s}, 'StereoImageTimeSeries') )
+                   obj.SITS{s}.flushAllTextures();
+                   return
+               end
+            end
+        end
+        
+        function flushAllTextures(obj)
+            %% Clear ALL the textures that are already loaded         
+            % 2011/07/14 Start coding
+            
+            for s = 1:obj.Nsteps                
+                %fprintf('\nChecking step %d', s);
+                
+                % Check if the texture exists, then try to close it
+                tex = obj.texture_dom{s};
+                if( ~isempty(tex) )
+                    Screen('Close', tex);
+                    obj.texture_dom{s} = [];
+                    %fprintf('...closed!');
+                else
+                    %fprintf('...no texture');
+                end
+
+                tex = obj.texture_nondom{s};                    
+                if( ~isempty(tex) )
+                    Screen('Close', tex);
+                    obj.texture_nondom{s} = [];
+                end
+            end            
+        end
+        
+        function destinationRect = getDestinationRect( obj, IMAGE, quadrant )
+            %% Calculate a destination rectangle to scale image size
+            %  to fit in display window with desired minimum border size
+            % IMAGE is the image (to get its dimensions)
+            % quadrant (1,2,3,4) places image in just one of the quadrants
+            %  and any other value uses all four quadrants
+            %
+            % destinationRect = [X_Left, Y_Top, X_Width, Y_Height]
+
+            minBorderFraction = obj.minBorderPercent / 100;
+
+            % Get IMAGE dimensions
+            imageDims   = size(IMAGE);
+            imageX      = imageDims(2);
+            imageY      = imageDims(1);            
+
+            % Get screen dimensions
+            windowDims  = Screen('Rect', obj.WINDOW);            
+            windowX     = windowDims(3);
+            windowY     = windowDims(4);
+
+            % Aspect ratio is width / height
+            imageAR     = imageX / imageY;
+            windowAR    = windowX / windowY;            
+
+            % If the image has larger AR than window, then the X border is
+            % the smaller than Y border
+            if( imageAR > windowAR )
+
+                % The X border is smaller than the Y border
+                borderX     = minBorderFraction * windowX;
+                imageSizeX  = windowX - 2*borderX;                
+
+                % Now calculate the Y border, fixing the image aspect ratio
+                imageSizeY   = imageSizeX / imageAR;
+                borderY      = (windowY - imageSizeY)/2;
+
+            else                
+                % The Y border is smaller than the X border
+                borderY     = minBorderFraction * windowY;
+                imageSizeY  = windowY - 2*borderY;
+
+                % Now calculate the X border, fixing the image aspect ratio
+                imageSizeX   = imageSizeY * imageAR;
+                borderX      = (windowX - imageSizeX)/2;                                
+            end            
+
+            % Place the image in quadrant 1, 2, 3, 4, or all four
+            switch quadrant
+                % _Quadrants_
+                %   II | I
+                %  ----|----
+                %  III | IV
+                %
+                case 1
+                    destinationRect = [borderX + imageSizeX/2, ...
+                                       borderY, ...
+                                       borderX + imageSizeX, ...
+                                       borderY + imageSizeY/2];
+
+                case 2
+                    destinationRect = [borderX, ...
+                                       borderY, ...
+                                       borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY/2];
+
+                case 3
+                    destinationRect = [borderX, ...
+                                       borderY + imageSizeY/2, ...
+                                       borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY];
+
+                case 4
+                    destinationRect = [borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY/2, ...
+                                       borderX + imageSizeX, ...
+                                       borderY + imageSizeY];
+
+                otherwise
+                    % Full
+                    % Now stretch the image to allow minimum border
+                    destinationRect = [borderX, ...
+                                       borderY, ...
+                                       borderX + imageSizeX, ...
+                                       borderY + imageSizeY];        
+            end
+        end
+        
+        function [response_value, response_time] = getLastResponse( obj )
+            %% DEPRECATED Return the most recent response
+            % Note: pp_steps_traversed is used because the participant may
+            % traverse the steps forward or backward (e.g., 1, 2, 3, 2, 3, 4, 5)
+            
+            error('Function deprecated. Use getRecentResponse( recencyIndex ), where recencyIndex = 1,2,3,...');
+            %{
+            % These values will be replaced, if an INPUT step was traversed
+            response_value  = NaN;
+            response_time   = NaN;
+                           
+            % Find the most recent step traversed that was an INPUT
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type{s}, 'INPUT') )
+                    % Find the response from the this step
+                    response_value  = obj.pp_response_value(st);
+                    response_time   = obj.pp_response_time( st );
+                    return;
+                    
+                elseif( strcmpi(obj.step_type{s}, 'TIMESERIES') )
+                    if( obj.SITS{s}.ALLOW_INPUT )
+                        % Find the response from the this step
+                        response_value  = obj.SITS{s}.keyPress_Value;
+                        response_time   = obj.SITS{s}.keyPress_Time;
+                        return;
+                    end                    
+                end                    
+            end              
+            %}
+        end
+        
+        function [response_value, response_time] = getRecentResponse( obj, recencyIndex  )
+            %% Return the most recent response
+            % recencyIndex = 1,2,3,... for first, second, third,... most recent repsonse
+            
+            % Note: pp_steps_traversed is used because the participant may
+            % traverse the steps forward or backward (e.g., 1, 2, 3, 2, 3, 4, 5)
+            
+            % These values will be replaced, if an INPUT step was traversed
+            response_value  = NaN;
+            response_time   = NaN;            
+            
+            recencyIndex_current = 0;
+                           
+            % Find the most recent step traversed that was an INPUT
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type{s}, 'INPUT') )
+                    recencyIndex_current = recencyIndex_current+1;
+                    
+                    % Check if this is the desired recency index
+                    if( recencyIndex == recencyIndex_current )                    
+                        % Find the response from the this step
+                        response_value  = obj.pp_response_value(st);
+                        response_time   = obj.pp_response_time( st );
+                        return;
+                    end
+                    
+                elseif( strcmpi(obj.step_type{s}, 'TIMESERIES') )
+                    if( obj.SITS{s}.ALLOW_INPUT )
+                        recencyIndex_current = recencyIndex_current+1;
+                        
+                        % Check if this is the desired recency index
+                        if( recencyIndex == recencyIndex_current )
+                            % Find the response from the this step
+                            response_value  = obj.SITS{s}.keyPress_Value;
+                            response_time   = obj.SITS{s}.keyPress_Time;
+                            return;
+                        end
+                    end                    
+                end                    
+            end                
+        end
+        
+        function state = getLastQueryProperty( obj, property )
+            %% Return deisred property of query image for last SITS instance
+            % that was traversed by participant
+            
+            % This value will be replaced, if a TIMSERIES step was traversed
+            state = NaN;
+            
+            % Find the most recent step traversed that was a TIMESERIES
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type( s ), 'TIMESERIES') )
+                    
+                    state = obj.pp_SITS_specs{st}.getQueryImageState( property );
+                    %{
+                    switch upper(property)
+                        case 'ROTATION'     
+                            state = obj.pp_query_image_rotation( st );
+
+                        case 'QUADRANT'
+                            state = obj.pp_query_image_quadrant( st );
+
+                        case {'CONTRAST', 'CONTRASTLOG10'}
+                            state = obj.pp_query_image_contrastlog10( st );
+
+                        otherwise
+                            error('Invalid property specified');
+                    end
+                    %}
+                    return;
+                end                    
+            end     
+            
+                    
+        end
+        
+        function SITS = getLastSITS( obj )
+            %% Return the most recent instance of SteroImageTimeSeries            
+            SITS = obj.SITS{end};            
+        end
+                
+        function nextStep( obj )
+            %% Advance a step in the session
+            if( obj.current_step < obj.Nsteps )
+                obj.current_step = obj.current_step+1;
+            end            
+        end
+        
+        function nextStepDisplay( obj )
+            %% Advance a step in the session, then display if possible
+            if( obj.current_step < obj.Nsteps )
+                obj.current_step = obj.current_step+1;
+                obj.displayCurrentStep();
+            end            
+        end
+        
+        function previousStep( obj )
+            %% Recede a step in the session
+            if( obj.current_step > 1 )
+                obj.current_step = obj.current_step-1;
+            end            
+        end
+               
+        function previousStepDisplay( obj )
+            %% Recede a step in the session, then display if possible
+            if( obj.current_step > 1 )
+                obj.current_step = obj.current_step-1;
+                obj.displayCurrentStep();
+            end
+        end
+        
+        function setEyeDominance( obj, DOMINANT_EYE )
+            %% Set which eye is dominant ('LEFT' or 'RIGHT')
+            
+            switch( upper(DOMINANT_EYE) )
+                case 'LEFT'
+                    obj.DOM_DISPLAY     = obj.LEFT_DISPLAY;
+                    obj.NONDOM_DISPLAY  = obj.RIGHT_DISPLAY;                    
+                                         
+                case 'RIGHT'
+                    obj.DOM_DISPLAY     = obj.RIGHT_DISPLAY;
+                    obj.NONDOM_DISPLAY  = obj.LEFT_DISPLAY;
+                    
+                otherwise
+                    error('Invalid dominant eye specified, use \''LEFT\'' or \''RIGHT\'' only');
+            end            
+        end
+        
+        function setFramingRectangle( obj, DRAW_FRAMING_RECTANGLE, COLOR_RGB, border_percent_X, border_percent_Y, PIXEL_WIDTH )
+            %% Set the specifications for the framing rectangle
+            % DRAW_FRAMING_RECTANGLE = (true/false) Draw the rectangle
+            % COLOR_RGB = 0-255 [R G B] color triplet
+            % border_percent_X,Y = Percent of window width/height to make border
+            % PIXEL_WIDTH = Width of rectangle line in pixels            
+            
+            % To draw or not to draw...
+            obj.DRAW_FRAMING_RECTANGLE = DRAW_FRAMING_RECTANGLE;
+            
+            if( DRAW_FRAMING_RECTANGLE )
+                obj.frame_Color = COLOR_RGB;
+                obj.frame_Width = PIXEL_WIDTH;
+                
+                % The rectangle specifies the drawn frame
+                %  Using the window dimensions and desired borders
+                % RECT = [X_Left, Y_Top, X_Width, Y_Height]                
+                windowDims  = Screen('Rect', obj.WINDOW);
+                window_Width    = windowDims(3);
+                window_Height   = windowDims(4);
+                
+                border_pixels_X = ceil(border_percent_X * window_Width / 100);
+                border_pixels_Y = ceil(border_percent_Y * window_Height / 100);
+                obj.frame_Rect = [border_pixels_X, border_pixels_Y, ...
+                     window_Width-border_pixels_X, window_Height - border_pixels_Y];
+            end
+        end
+        
+        function setMinBorderPercent( obj, minBorderPercent )
+            %% Set minimum window border for scaling image display
+            obj.minBorderPercent = minBorderPercent;            
+        end
+        
+        function setWindow( obj, WINDOW )
+            %% Set the window for Psychophysics toolbox
+            obj.WINDOW = WINDOW;
+            
+            % Now that the window is set, update textures
+            obj.updateTextures();
+        end
+        
+        
+        
+        function updateTextures( obj )
+            %% Update the textures if there is a window available
+            
+            if( isnan(obj.WINDOW) )
+                error('Set window before setting texture');
+            end
+            
+            % Do not overwrite texture if it exists already
+            %  Simply start with the next available slot
+            for s = length(obj.texture_dom)+1 : obj.Nsteps
+                obj.texture_dom{s} = Screen('MakeTexture', obj.WINDOW, obj.image_dom{s});
+                
+                % Load the nondom image too, if needed
+                if( obj.is_stereo{s} )
+                    obj.texture_nondom{s} = Screen('MakeTexture', obj.WINDOW, obj.image_nondom{s});
+                else
+                    obj.texture_nondom{s} = NaN;
+                end
+            end
+        end       
+    end
+end
