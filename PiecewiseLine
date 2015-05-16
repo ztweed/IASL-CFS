@@ -1,0 +1,125 @@
+classdef PiecewiseLine < handle
+    %PiecewiseLine calculate piecewise line functions for given key points (X,Y)
+    % Ian Kleckner
+    % Interdisciplinary Affective Science Lab (IASL)
+    % Continuous Flash Suppression (CFS)
+    %
+    % 2011/04/29 Start coding
+    %
+    % TODO
+    %
+    % Example use
+    %{
+        p = PieceWiseLine;
+        p.addKey(0,60);
+        p.addKey(10,60);
+        p.addKey(100,0);        
+
+        p2 = PiecewiseLine;
+        p2.addKey(0,0);
+        p2.addKey(10,25);
+        p2.addKey(100,25);       
+    
+        xvalues = linspace(0,100,101)
+        plot(xvalues, p.getY(xvalues), '-r');
+        hold all;
+        plot(xvalues, p2.getY(xvalues), '--k')
+    %}
+    
+    
+    properties (SetAccess = private)
+        %% These can only be set via functions (but can be read directly via "."
+     
+        % Key points for determining the line
+        keyX    = [];
+        keyY    = [];
+        
+        Nkeys   = 0;
+        
+        % Y0 and SLOPE values at each segment
+        %  Note: there are Nkeys-1 segments
+        Y0      = [];
+        SLOPE   = [];
+        
+    end
+    
+    methods
+        function addKey( obj, X, Y )
+            %% Add a key point to the line
+            obj.keyX(obj.Nkeys+1)   = X;
+            obj.keyY(obj.Nkeys+1)   = Y;
+            
+            % Sort the vectors
+            [obj.keyX, indices] = sort(obj.keyX);            
+            obj.keyY = obj.keyY(indices);
+            
+            obj.Nkeys = obj.Nkeys+1;
+            
+            % Recompute the segments
+            obj.updateSegments();
+        end
+        
+        function updateSegments( obj )
+            %% Update each line segment
+            
+            % There are Nkeys keypoints, and hence Nkeys-1 intervals
+            obj.Y0 = obj.keyY(1:obj.Nkeys-1);
+            
+            for k = 1:obj.Nkeys-1
+                obj.SLOPE(k) = (obj.keyY(k+1)-obj.keyY(k)) / ...
+                               (obj.keyX(k+1)-obj.keyX(k));
+            end
+        end
+        
+        function keyXY = getKeys(obj)
+            %% Get keys in matrix form
+            keyXY = zeros(obj.Nkeys,2);
+            
+            keyXY(1:obj.Nkeys,1) = obj.keyX;
+            keyXY(1:obj.Nkeys,2) = obj.keyY;
+        end
+        
+        function y = getY(obj, x)
+            %% Return value of x for the given function (y=scalar or vector)
+            if( length(x) > 1 )
+                y = zeros(1,length(x));
+                for ix = 1:length(x)
+                    y(ix) = obj.getY( x(ix) );
+                end
+                
+            else
+                if( obj.Nkeys == 1 )
+                    error('Must have at least two keys for piecewise line');
+                end
+
+                % Find the segment for value x
+                xGtInterval = x > obj.keyX;
+                
+                % Get indices for those segments
+                segment_xGtInterval = find(xGtInterval);
+                
+                % Lower bound limits to first segment
+                if( isempty(segment_xGtInterval) )
+                    % First segment
+                    segment = 1;
+                    %error('X must be greater than one of the key X values supplied');
+                    
+                else
+                    % The last segment is the one in which x lies
+                    segment = segment_xGtInterval(end);
+                end
+
+                % Beyond upper bound limits to last segment
+                if( segment > obj.Nkeys-1 )
+                    segment = obj.Nkeys-1;
+                end
+
+                % The xvalue must be from the start of the segment
+                x_in_segment = x - obj.keyX(segment);
+
+                % Calculate the value
+                y = obj.Y0(segment) + obj.SLOPE(segment) * x_in_segment;            
+            end
+        end        
+    end    
+end
