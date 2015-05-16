@@ -1,0 +1,721 @@
+% Ian Kleckner
+% Interdisciplinary Affective Science Lab (IASL)
+% Continuous Flash Suppression (CFS) initializer for contrast ramp expts
+%
+% 2011/04/25 Sandbox for CFS programming (trying minor tasks)
+%            Display time-dependent contrastMask 
+% 2011/05/04 Update for actual pilot experiment
+% 2011/05/18 Add Diary
+% 2011/06/02 Update CFS Ramp experiment protocol (see note "2011/06/02")
+%            Use StimuliFolder and MondrianFolder
+%            RequestQuadrantFraction determines probability of having
+%             user guess a quadrant post-CFS
+%
+% 2011/07/14 Enhance memory usage to prevent crash, more command window output
+%            Use writeSpecificationsHeader function
+%            Add framing rectangle
+%
+% 2011/07/20 Do not load Thumbs.DB files, write log.txt after each trial
+%            Prevent truncation of trials after ~4 sec despite what the
+%            initializer specifies
+%
+% 2011/11/15 Eric added randomization fix so trials were not always shown
+%            in same order. Avoid same random number sequence upon MATLAB
+%            reboot
+%
+% TODO
+
+function CFS_ramp_experiment( CFS_specs )
+    %% Parse the input variable    
+    MinBorderPercent        = CFS_specs.MinBorderPercent;
+    FullScreenMode          = CFS_specs.FullScreenMode;
+
+    currentDirectory        = CFS_specs.currentDirectory;
+    SoftwareVersion         = CFS_specs.SoftwareVersion;
+
+    % Read in piecewiseContrast_Dom, contrast2
+    piecewiseContrast_Dom      = CFS_specs.piecewiseContrast_Dom;
+    piecewiseContrast_NonDom   = CFS_specs.piecewiseContrast_NonDom;
+
+    HideMousePointer        = CFS_specs.HideMousePointer;
+
+    Ntrials                 = CFS_specs.NumTrials;
+    InterTrialDelay         = CFS_specs.InterTrialDelay;
+
+    StimuliFolder           = CFS_specs.StimuliFolder;
+    MondrianFolder          = CFS_specs.MondrianFolder;
+    NeutralFolder           = CFS_specs.NeutralFolder;
+    ScenarioFolder          = CFS_specs.ScenarioFolder;
+
+    RequestQuadrantFraction = CFS_specs.RequestQuadrantPercent / 100;
+
+    PPid                    = CFS_specs.PPid;
+    % Convert PPid to a string, if provided as number
+    if( isnumeric(PPid) )
+        PPid = sprintf('%d', PPid);
+    end
+    DominantEyeString       = CFS_specs.DominantEyeString;
+
+    % Rate of presentation of screen images
+    %  Set as high as the monitor refresh rate (e.g., 60 Hz)
+    %  Best if this is an integer divisor of refresh rate (e.g., 10, 20, 30 Hz NOT 25 Hz, 59 Hz)
+    ContrastUpdateFrequency     = CFS_specs.ContrastUpdateFrequency;       
+
+    %% Initialize
+    % Clear command window
+    clc;
+    
+    % To address a bug
+    cd(currentDirectory);
+    
+    % Save results to files
+    PPid_nospaces = strrep(PPid, ' ', '_');
+    output_dir = sprintf('output--%s--%s',datestr(now, 'yyyy.mm.dd-HH-MM'), PPid_nospaces);
+    mkdir(output_dir);
+    
+    % Start saving contents of command window to log file
+    diary( sprintf('%s/diary.txt', output_dir) )
+    
+    % Write header for program output
+    OUTPUTSTREAM = 1; % 1 => command window
+    writeSpecificationsHeader( OUTPUTSTREAM, CFS_specs );
+
+    
+   % Obtain new seed for random number generator [2011/11/15]
+   %  This way, subsequent instances of MATLAB will be random with respect
+   %  to one another
+   %   On MATLAB R2011b: rng shuffle
+   newStream = RandStream('mt19937ar', 'Seed', sum(100*clock))
+   RandStream.setGlobalStream(newStream);
+    
+    fprintf('\n\n');
+    fprintf('\n___________________________________________________________\n');
+    
+    % Enable unified mode of KbName, so KbName accepts identical key names on
+    % all operating systems (KbDemo.m)
+    KbName('UnifyKeyNames');
+
+    % This script calls Psychtoolbox commands available only in OpenGL-based
+    % versions of the Psychtoolbox.
+    AssertOpenGL;
+
+    %% Set up the display session
+    %  See DisplaySession.m for more information
+    % TODO % Load this information from a file (instead of hard-coded here)
+
+    % Create a DisplaySession
+    DS = DisplaySession;
+
+    % The minimum border percentage for scaling displayed images (<50)
+    DS.setMinBorderPercent( MinBorderPercent );
+
+    % Set the eye dominance
+    DS.setEyeDominance( DominantEyeString )
+
+    if( FullScreenMode )
+        rect_windowed = [];
+    else
+        X_upper = 0;
+        Y_upper = 0;
+        X_width = 600;
+        Y_width = 400;
+        rect_windowed = [X_upper, Y_upper, X_upper+X_width, Y_upper+Y_width];
+    end
+
+    % Stereo-mode as per the PTB documentation (see below)
+    %  0 -> no stereo, 4 -> split left/right
+    stereoMode = 4;
+
+    % Create the PTB window for display
+    [window, rect] = DS.createWindow(rect_windowed, stereoMode);    
+    
+%   Set the framing rectangle
+    DRAW_FRAMING_RECTANGLE  = true;
+    COLOR_RGB               = [255 255 255];
+    border_percent_X        = CFS_specs.Frame_BorderWidth;
+    border_percent_Y        = CFS_specs.Frame_BorderHeight;
+    PIXEL_WIDTH             = CFS_specs.Frame_LineWidth;    
+    DS.setFramingRectangle( DRAW_FRAMING_RECTANGLE, COLOR_RGB, border_percent_X, border_percent_Y, PIXEL_WIDTH );
+
+    % Set to maximum priority (Need root privilages to do this...)
+    %priorityLevel=MaxPriority(window);
+    %Priority(priorityLevel);
+
+    % Hide the mouse cursor
+    if( HideMousePointer )
+        HideCursor();
+    end
+
+    %% Add steps to the display session
+    % addStep( step_type, presentation_mode, DOM_IMAGE, NONDOM_IMAGE );
+    %
+    % step_type
+    %  (a) NAVIGATE      -> Navigate through steps forward/backward
+    %  (b) INPUT         -> Wait for valid input from keyboard (1-4, or Esc)
+    %                       then go to next step in display loop
+    %  (c) DELAY         -> Show image, then wait a delay
+    %                       Specified delay (sec) with additional final argument
+    %  (d) EXIT          -> Exit the display loop
+    %
+    % presentation_mode
+    %  STEREO        -> Stereo display (Only option at this point)
+    %
+    % DOM_IMAGE    -> Specify filename for image on dominant eye
+    %
+    % NONDOM_IMAGE   -> Specify filename for image on nondominant eye
+
+    % Add the first navigation steps (just for testing)
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide02.png', 'data/Slide02.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide03.png', 'data/Slide01.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide01.png', 'data/Slide04.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide05.png', 'data/Slide01.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide01.png', 'data/Slide06.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide07.png', 'data/Slide08.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide09.png', 'data/Slide10.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide11.png', 'data/Slide11.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide12.png', 'data/Slide12.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide13.png', 'data/Slide13.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide14.png', 'data/Slide14.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide15.png', 'data/Slide15.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide16.png', 'data/Slide16.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide17.png', 'data/Slide17.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide18.png', 'data/Slide18.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide19.png', 'data/Slide19.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide20.png', 'data/Slide20.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide21.png', 'data/Slide21.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide22.png', 'data/Slide22.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide23.png', 'data/Slide23.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide24.png', 'data/Slide24.png')
+
+    % TODO Pay attention to quadrant slide
+
+    %% Read random pool of files for filenames
+    fileNames_Faces     = Set();
+    fileNames_Mondrian  = Set();
+    fileNames_Neutral   = Set();
+    fileNames_Scenario  = Set();
+
+    % Get the filenames in the desired directory
+    filedir_Faces       = dir(StimuliFolder);
+    filedir_Mondrian    = dir(MondrianFolder);
+    filedir_Neutral     = dir(NeutralFolder);
+    filedir_Scenario    = dir(ScenarioFolder);
+
+    OUTPUT_DEBUG = false;
+    if( OUTPUT_DEBUG )
+        fprintf('\n\nRead directory %s', StimuliFolder);
+        filedir_Faces
+        fprintf('\n\tLength = %d',length(filedir_Faces));
+        %filedir_Faces(1).name
+        %filedir_Faces(2).name
+        %filedir_Faces(3).name
+    end
+
+    % Read through each file starting with index 3
+    %  Note: indices 1 and 2 are "." and ".."
+    for f = 3:length(filedir_Faces)
+        % Remove any potential double-slashes
+        file = sprintf('%s/%s', StimuliFolder, filedir_Faces(f).name);
+        file = strrep( file, '//', '/' );
+
+        % Add each filename to the set
+        % (As long as its not one of those Thumbs.db temp files...)
+        if( ~strcmpi(file, 'THUMBS.DB') )            
+            fileNames_Faces.addElement(file);
+        end
+    end
+
+    % Read through each file starting with index 3
+    %  Note: indices 1 and 2 are "." and ".."
+    for f = 3:length(filedir_Mondrian)
+        % Remove any potential double-slashes
+        file = sprintf('%s/%s', MondrianFolder, filedir_Mondrian(f).name);
+        file = strrep( file, '//', '/' );
+
+        % Add each filename to the set
+        % (As long as its not one of those Thumbs.db temp files...)
+        if( ~strcmpi(file, 'THUMBS.DB') )
+            fileNames_Mondrian.addElement(file);
+        end
+    end
+    
+    % Read through each file starting with index 3
+    %  Note: indices 1 and 2 are "." and ".."
+    for f = 3:length(filedir_Neutral)
+        % Remove any potential double-slashes
+        file = sprintf('%s/%s', NeutralFolder, filedir_Neutral(f).name);
+        file = strrep( file, '//', '/' );
+
+        % Add each filename to the set
+        % (As long as its not one of those Thumbs.db temp files...)
+        if( ~strcmpi(file, 'THUMBS.DB') )            
+            fileNames_Neutral.addElement(file);
+        end
+    end
+    
+    % Read through each file starting with index 3
+    %  Note: indices 1 and 2 are "." and ".."
+    for f = 3:length(filedir_Scenario)
+        % Remove any potential double-slashes
+        file = sprintf('%s/%s', ScenarioFolder, filedir_Scenario(f).name);
+        file = strrep( file, '//', '/' );
+
+        % Add each filename to the set
+        % (As long as its not one of those Thumbs.db temp files...)
+        if( ~strcmpi(file, 'THUMBS.DB') )            
+            fileNames_Scenario.addElement(file);
+        end
+    end
+    
+    OUTPUT_DEBUG = true;
+    if( OUTPUT_DEBUG )
+        fprintf('\n\nAll the face images have been added');
+        for f = 1:fileNames_Faces.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_Faces.element{f});
+        end
+        
+        fprintf('\n\nAll the Mondrian images have been added');
+        for f = 1:fileNames_Mondrian.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_Mondrian.element{f});
+        end
+        
+        fprintf('\n\nAll the Neutral images have been added');
+        for f = 1:fileNames_Neutral.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_Neutral.element{f});
+        end
+        
+        fprintf('\n\nAll the Scenario images have been added');
+        for f = 1:fileNames_Scenario.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_Scenario.element{f});
+        end
+    end
+
+    %% Set up a timeseries (time-based sequence of images)
+    %  See StereoImageTimeSeries.m for more information
+    % addImage( START_TIME, SOURCE_MODE_DOMINANT,  DOMINANT_IMAGE_NAME,  SOURCE_MODE_NONDOMINANT,  NONDOMINANT_IMAGE_NAME );
+    %
+    % START_TIME              -> Time to start displaying image (sec)
+    %
+    % SOURCE_MODE must be specified for both DOMINANT and NONDOMINANT images
+    %  (a) FIXED             -> Display image as fixed orientation and quadrant
+    %  (b) RANDOM_POOL       -> Select random image from pool
+    %  (c) RANDOM_QUADRANT   -> Randomly select quadrant for display (1,2,3,4)
+    %  (d) RANDOM_ROTATION_2 -> Randomly select rotation angle (0, 180)
+    %  (e) RANDOM_ROTATION_4 -> Randomly select rotation angle (0, 90, 180, 270)                        
+    %  (f) UNCHANGED         -> Display whatever was in the prior step
+    %
+    % IMAGE_NAME specified for both DOMINANT and NONDOMINANT images
+    %  IMAGE             -> Specify image filename
+
+    %% 2011/06/02 Specifications for CFS Ramp presentation
+    %  CFS ramp (a few seconds)
+    %  Participant can interrupt ramp by pressing ANY key
+    %   -> Log time of keypress
+    %  Backwards mask for 0.5 sec
+    %  Ask user: What quadrant was the image in? Use keypad 4,5,1,2
+    %   -> Receive input
+    %  Set up for next trial (takes a few sec)
+    %  Wait remainder of total inter-trial-interval (a few sec)
+    %
+    for t = 1:Ntrials
+        %% Set up the current trial
+        time_startTrial = tic();
+        fprintf('\n\nTrial number %d / %d', t, Ntrials);    
+
+        % Request the quadrant guess from the participant?
+        REQUEST_QUADRANT_GUESS = rand() <= RequestQuadrantFraction;
+        
+        % CFS display series
+        CFSQuadrant = StereoImageTimeSeries(DS);
+        
+        % Randomly acquire images for neutrals and scenarios
+        filename_neutral   = fileNames_Neutral.getElementRandomNoReplacement();
+        filename_scenario  = fileNames_Scenario.getElementRandomNoReplacement();
+
+        % Add neutral face step
+        DS.addStep('NAVIGATE', 'STEREO', filename_neutral, filename_neutral);
+        
+        % Add scenario step
+        DS.addStep('NAVIGATE', 'STEREO', filename_scenario, filename_scenario);
+        
+        % Add black dot step to display session
+        DS.addStep('DELAY', 'STEREO', 'data/dot-white_on_black.jpg', 'data/dot-white_on_black.jpg', 0.5);
+
+        % CFS frequency in Hz -> determines inter-frame delay for Mondrians
+        CFS_Frequency   = 10;
+        
+        % Get the total time for CFS display from the contrast ramp
+        CFS_Duration    = max( max(piecewiseContrast_Dom.keyX), max(piecewiseContrast_NonDom.keyX) );
+        CFS_Nframes     = CFS_Duration * CFS_Frequency;
+
+        % Randomly acquire images for presentation
+        filename_Mondrian   = fileNames_Mondrian.getElementRandomNoReplacement();
+        filename_Face       = fileNames_Faces.getElementRandomNoReplacement();    
+        filename_Faces{t}   = filename_Face;
+
+        %% Prepare the CFS RAMP as a series of images
+        timeStart = 0;
+        CFSQuadrant.addImage( timeStart, 'FIXED', filename_Mondrian, 'RANDOM_QUADRANT', filename_Face );
+        duration = 1 / CFS_Frequency;
+
+        % This marks the prior NOMDOMINANT image as the one for query and contrast modification
+        %  See use of getQueryImageState() below
+        CFSQuadrant.setQueryImage('NONDOMINANT');
+
+        fprintf('\n\tAdding CFS frames...');
+        for f = 1:CFS_Nframes
+            %fprintf('\nAdding frame %d', f);
+            timeStart = timeStart + duration;
+            filename_Mondrian   = fileNames_Mondrian.getElementRandomNoReplacement();
+            CFSQuadrant.addImage( timeStart, 'FIXED', filename_Mondrian, 'UNCHANGED', 'N/A' );
+        end
+        fprintf('Done');
+
+        % Allow input during CFS trial (user hits ANY key to interrupt)
+        CFSQuadrant.setAllowInput(true, 'ANY_KEY');
+
+        % Enable contrast ramping for the series of images (CFS)
+        %  Note: some specifications are set via CFS_Ramp.m GUI
+        fprintf('\n\tCalculating contrast ramps...');
+        CFSQuadrant.setContrastRamp( true, ContrastUpdateFrequency, ...
+            piecewiseContrast_Dom, piecewiseContrast_NonDom);
+        fprintf('Done');
+
+        % Add time series to the display session ONLY after settings are applied
+        DS.addNewTimeSeries(CFSQuadrant);
+
+        %% After the CFS ramp is done
+        % Backwards mask
+        DS.addStep('DELAY', 'STEREO', 'data/backwardsMask.bmp', 'data/backwardsMask.bmp', 0.5);
+
+        % Only request the quadrant guess from the participant if desired
+        if( REQUEST_QUADRANT_GUESS )    
+            % Ask the participant what quadrant the image was in
+            DS.addStep('INPUT', 'STEREO', 'data/instructions-what_quadrant-keyboard.png', 'data/instructions-what_quadrant-keyboard.png')
+
+            % Show backwards mask again after the user presses a key
+            DS.addStep('DELAY', 'STEREO', 'data/backwardsMask.bmp', 'data/backwardsMask.bmp', 0.01);
+        end
+
+        %% Setup is complete, wait remaining time before starting this trial
+        time_setupTrial = toc(time_startTrial);
+        setupTimes(t)   = time_setupTrial;
+
+        if( time_setupTrial < InterTrialDelay )
+            fprintf('\n\tSetup took %0.1f sec, waiting an additional %0.1f sec', ...
+                time_setupTrial, InterTrialDelay-time_setupTrial);
+            WaitSecs(InterTrialDelay-time_setupTrial);        
+        else
+            fprintf('\n\t!! Setup took %0.1f sec, which is longer than desired inter-trial delay (%0.1f sec)', ...
+                time_setupTrial, InterTrialDelay);        
+        end
+
+        %% Start the trial that was set up above
+        fprintf('\n\tImage: %s', filename_Faces{t});
+        if( t == 1 )
+            DS.displayStep(1);
+        else            
+            DS.nextStepDisplay();
+        end
+
+        %% Trial is completed, analyze the results
+        %  The participant pressed either ONE or TWO keys
+        %  First, ANY key to stop the CFS Ramp
+        %  Second, if REQUEST_QUADRANT_GUESS is true, a key to guess which quadrant the image was in
+
+        % Check what quadrant was used for display
+        quadrantDisplayed(t) = DS.getLastQueryProperty( 'QUADRANT' );        
+        fprintf('\n\tQuadrant displayed: %d', quadrantDisplayed(t));        
+
+        % Get the TIME of keypress during the CFS ramp
+        % If the user guessed a quadrant...
+        if( REQUEST_QUADRANT_GUESS )
+            % ...then ANY key is the 2nd to last response
+            recencyIndex = 2;
+        else
+            % ...otherwise ANY key is the most recent reponse
+            recencyIndex = 1;
+        end
+
+        [VOID, response_time] = DS.getRecentResponse(recencyIndex);
+        if( ~isnan(response_time) )
+            fprintf('\n\tRamp interruption time (sec): %f', response_time);
+        else
+            fprintf('\n\tRamp NOT interrupted');
+        end
+
+        % Store the time of keypress
+        responseTimes(t)    = response_time;
+
+        % If the user guessed a quadrant...
+        if( REQUEST_QUADRANT_GUESS )
+            % ...this is the most recent response (1st to last)
+            recencyIndex = 1;
+            [response_value, VOID] = DS.getRecentResponse(recencyIndex);
+
+            if( ~isnan(response_value) )
+                fprintf('\n\tQuadrant guess: %d', response_value);
+
+                if( response_value == quadrantDisplayed(t) )
+                    fprintf(' (Correct)');
+                else
+                    fprintf(' (Incorrect)');
+                end
+            else
+                fprintf('\n\tNo key was pressed');
+            end
+
+            % Store the guessed quadrant
+            responseValues(t)   = response_value;
+
+        else        
+            % ...otherwise, the user did NOT guess a quadrant
+            % Store the guessed quadrant
+            response_value      = 0;
+            responseValues(t)   = 0;
+
+            fprintf('\n\tNo quadrant guess requested');
+        end
+
+        %% Cleanup used textures to save memory
+        fprintf('\n\tFlushing textures...');
+        DS.flushMostRecentSITSTextures();
+        DS.flushAllTextures();
+        fprintf('Done');
+        
+        %% Write the log file (2011/07/20)
+        % This is done after each trial in case the program crashes
+        fprintf('\n\tWriting log file...');
+        
+        % Create file for log
+        outputfile = sprintf('%s/log.txt', output_dir);
+        FILE = fopen(outputfile, 'w');
+
+        % Header for the log file
+        writeSpecificationsHeader( FILE, CFS_specs );
+
+        % User responses
+        fprintf(FILE, '\n\nResults of participant session');
+        fprintf(FILE, '\nResponseValue\tMeaning');
+        fprintf(FILE, '\nNaN\tParticipant never pressed ANY key during contrast ramp');
+        fprintf(FILE, '\n0\tNo quadrant guess was requested');
+        fprintf(FILE, '\n1-4\tQuadrant 1-4 was guessed');
+        fprintf(FILE, '\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s', ...
+            'TrialNumber', ...
+            'ImageDisplayed', ...
+            'QuadrantDisplayed(1-4)', ...
+            'ResponseValue(1-4)', ...
+            'Correct?', ...
+            'ResponseTime(Sec)', ...
+            'ContrastLog10(Dominant)', ...
+            'ContrastLog10(Non-Dominant)', ...
+            'SetupTime(sec)' );
+
+        NtrialsCompleted = t;
+        for t_log = 1:NtrialsCompleted   
+            fprintf(FILE, '\n%d\t%s\t%d\t%d\t%d\t%f\t%f\t%f\t%f', ...
+                t_log, ...
+                filename_Faces{t_log}, ...
+                quadrantDisplayed(t_log), ...
+                responseValues(t_log), ...
+                quadrantDisplayed(t_log)==responseValues(t_log), ...
+                responseTimes(t_log), ...
+                piecewiseContrast_Dom.getY(responseTimes(t_log)), ...
+                piecewiseContrast_NonDom.getY(responseTimes(t_log)), ...
+                setupTimes(t_log) );
+        end
+        fclose(FILE);
+        fprintf('Done');
+
+        %% Exit the loop if needed
+        if( response_value == -1 )
+            break;
+        end
+    end   
+
+    %% Close the onscreen window
+    Priority(0);
+    Screen('CloseAll')
+
+    %% Plot values
+    LINEWIDTH   = 3;
+    FONTSIZE    = 16;
+    MARKERSIZE  = 10;
+
+    %% Plot timecourse
+    hfig    = figure;
+    hax     = axes;
+    set(hax, 'LineWidth', LINEWIDTH-1, 'FontSize', FONTSIZE);
+    hold(hax, 'all');
+
+    legendString = {};
+    legendHandles = [];
+
+    keyXY       = piecewiseContrast_Dom.getKeys();
+    timeStart   = min(keyXY(:,1));
+    timeEnd     = max(keyXY(:,1));
+    xvalues     = linspace(timeStart, timeEnd, 50);
+
+    legendHandles(end+1) = plot(hax, xvalues, piecewiseContrast_Dom.getY(xvalues), '-k', ...
+        'LineWidth', LINEWIDTH);
+    legendString{end+1} = 'Dominant Eye';
+
+    %plot(hax, keyXY(:,1), keyXY(:,2), 'ok', 'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+
+    % Nondominant eye
+    keyXY       = piecewiseContrast_NonDom.getKeys();
+    timeStart   = min(keyXY(:,1));
+    timeEnd     = max(keyXY(:,1));
+    xvalues     = linspace(timeStart, timeEnd, 50);
+
+    legendHandles(end+1) = plot(hax, xvalues, piecewiseContrast_NonDom.getY(xvalues), '--r', ...
+        'LineWidth', LINEWIDTH);
+    legendString{end+1} = 'Non-Dominant Eye';
+
+    % Mark key points
+    %plot(hax, keyXY(:,1), keyXY(:,2), 'sr', 'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+
+    % Mark each keypress
+    %  Note: responseValues = 0 implies NO quadrant guess was requested
+    trialIsCorrect  = (responseValues == quadrantDisplayed) .* (responseValues ~= 0);
+    tCorrect        = find(trialIsCorrect);
+    if( ~isempty(tCorrect) )
+        NX      = length(tCorrect);
+        X       = NaN*ones(1,NX);
+        Y       = NaN*ones(1,NX);
+        X(1:NX) = responseTimes(tCorrect);
+        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
+
+        legendHandles(end+1) = plot(hax, X, Y, 'ok', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'Correct';
+    end
+
+    trialIsIncorrect  = (responseValues ~= quadrantDisplayed) .* (responseValues ~= 0);
+    tIncorrect      = find(trialIsIncorrect);
+    if( ~isempty(tIncorrect) )
+        NX      = length(tIncorrect);
+        X       = NaN*ones(1,NX);
+        Y       = NaN*ones(1,NX);
+        X(1:NX) = responseTimes(tIncorrect);
+        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
+
+        legendHandles(end+1) = plot(hax, X, Y, 'xk', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'Incorrect';
+    end
+
+    trialNoQuadrantRequested    = responseValues == 0;
+    tNoQuadrant                 = find(trialNoQuadrantRequested);
+    if( ~isempty(tNoQuadrant) )
+        NX      = length(tNoQuadrant);
+        X       = NaN*ones(1,NX);
+        Y       = NaN*ones(1,NX);
+        X(1:NX) = responseTimes(tNoQuadrant);
+        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
+
+        legendHandles(end+1) = plot(hax, X, Y, 'sk', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'No Quadrant Requested';
+    end
+
+    xlabel(hax, 'Time (sec)');
+    ylabel(hax, 'Log_{10}(Contrast)');
+    box(hax, 'on');
+    legend(legendHandles, legendString, 'Location', 'Best');
+
+    print(hfig, '-depsc', sprintf('%s/timecourse-responses.eps', output_dir));
+    close(hfig);
+
+    %% Next plot on reponse values for each trial
+    hfig    = figure;
+    hax     = axes;
+    set(hax, 'LineWidth', LINEWIDTH-1, 'FontSize', FONTSIZE);
+    hold(hax, 'all');
+
+    legendString    = {};
+    legendHandles   = [];
+
+    % Mark each keypress
+    trialIsCorrect = responseValues == quadrantDisplayed;
+
+    % Correct responses
+    X   = find(trialIsCorrect .* (responseValues~=0));
+    if( ~isempty(X) )
+        Y   = responseTimes(X);
+        legendHandles(end+1) = plot(hax, X, Y, 'ok', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'Correct';
+    end
+
+    % Incorrect responses
+    X   = find(~trialIsCorrect .* (responseValues~=0));
+    if( ~isempty(X) )
+        Y   = responseTimes(X);
+        legendHandles(end+1) = plot(hax, X, Y, 'xk', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'Incorrect';
+    end
+
+    % No response requested
+    X   = find(responseValues == 0);
+    if( ~isempty(X) )
+        Y   = responseTimes(X);
+        legendHandles(end+1) = plot(hax, X, Y, 'sk', ...
+            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
+        legendString{end+1} = 'No Quadrant Requested';
+    end
+
+    xlabel(hax, 'Trial Number');
+    ylabel(hax, 'Reponse Time (sec)');
+    box(hax, 'on');
+    legend(legendHandles, legendString, 'Location', 'Best');
+
+
+    YLIM = get(hax,'YLim');
+    set(hax, 'YLim', [0, YLIM(2)]);
+
+    print(hfig, '-depsc', sprintf('%s/trials-response_times.eps', output_dir));
+    close(hfig);
+    
+    
+    %% Stop logging command window output
+    diary('off');
+end
+
+function writeSpecificationsHeader( OUTPUTSTREAM, CFS_specs )
+    %% Write the header information
+
+    fprintf(OUTPUTSTREAM, 'Continuous Flash Suppression (CFS) Contrast Ramp Pilot Program');
+    fprintf(OUTPUTSTREAM, '\nVersion\t%s', CFS_specs.SoftwareVersion);
+    fprintf(OUTPUTSTREAM, '\nIan Kleckner\nInterdisciplinary Affective Science Lab (IASL)');
+    fprintf(OUTPUTSTREAM, '\nLog last updated\t%s', datestr(now));
+    fprintf(OUTPUTSTREAM, '\nParticipant id\t%s', CFS_specs.PPid);
+    fprintf(OUTPUTSTREAM, '\nParticipant dominant eye\t%s', CFS_specs.DominantEyeString);
+    fprintf(OUTPUTSTREAM, '\nInter-trial delay (sec)\t%f', CFS_specs.InterTrialDelay);
+    fprintf(OUTPUTSTREAM, '\nDesired percent of trials in which user guesses quadrant\t%d', CFS_specs.RequestQuadrantPercent);
+    fprintf(OUTPUTSTREAM, '\nStimuli source folder\t%s', CFS_specs.StimuliFolder);
+    fprintf(OUTPUTSTREAM, '\nMondrian source folder\t%s', CFS_specs.MondrianFolder);
+
+    fprintf(OUTPUTSTREAM, '\nContrast update frequency (Hz)\t%f', CFS_specs.ContrastUpdateFrequency);
+    fprintf(OUTPUTSTREAM, '\nHide mouse pointer\t%d', CFS_specs.HideMousePointer);
+    fprintf(OUTPUTSTREAM, '\nFull-screen mode\t%d', CFS_specs.FullScreenMode);
+    fprintf(OUTPUTSTREAM, '\nMinimum window border percent\t%d', CFS_specs.MinBorderPercent);
+
+    % Contrast ramp specs
+    fprintf(OUTPUTSTREAM, '\n\nKey points for linear contrast ramps');
+    fprintf(OUTPUTSTREAM, '\nDominant Eye');
+    fprintf(OUTPUTSTREAM, '\nTime(sec)\tContrastLog10');
+    keyXY = CFS_specs.piecewiseContrast_Dom.getKeys();
+    for k = 1:size(keyXY,1)
+        fprintf(OUTPUTSTREAM, '\n%f\t%f', keyXY(k,1), keyXY(k,2));
+    end
+
+    fprintf(OUTPUTSTREAM, '\n\nNon-Dominant Eye');
+    fprintf(OUTPUTSTREAM, '\nTime(sec)\tContrastLog10');
+    keyXY = CFS_specs.piecewiseContrast_NonDom.getKeys();
+    for k = 1:size(keyXY,1)
+        fprintf(OUTPUTSTREAM, '\n%f\t%f', keyXY(k,1), keyXY(k,2));
+    end
+
+end
