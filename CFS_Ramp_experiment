@@ -42,9 +42,9 @@ function CFS_ramp_experiment( CFS_specs )
     Ntrials                 = CFS_specs.NumTrials;
     InterTrialDelay         = CFS_specs.InterTrialDelay;
 
-    StimuliFolder           = CFS_specs.StimuliFolder;
+    FacesFolder             = CFS_specs.FacesFolder;
     MondrianFolder          = CFS_specs.MondrianFolder;
-    NeutralFolder           = CFS_specs.NeutralFolder;
+    NeutralFacesFolder      = CFS_specs.NeutralFacesFolder;
     ScenarioFolder          = CFS_specs.ScenarioFolder;
 
     RequestQuadrantFraction = CFS_specs.RequestQuadrantPercent / 100;
@@ -174,36 +174,39 @@ function CFS_ramp_experiment( CFS_specs )
     DS.addStep('NAVIGATE', 'STEREO', 'data/Slide09.png', 'data/Slide10.png')
     DS.addStep('NAVIGATE', 'STEREO', 'data/Slide11.png', 'data/Slide11.png')
     DS.addStep('NAVIGATE', 'STEREO', 'data/Slide12.png', 'data/Slide12.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide13.png', 'data/Slide13.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide14.png', 'data/Slide14.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide15.png', 'data/Slide15.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide16.png', 'data/Slide16.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide17.png', 'data/Slide17.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide18.png', 'data/Slide18.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide19.png', 'data/Slide19.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide20.png', 'data/Slide20.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide21.png', 'data/Slide21.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide22.png', 'data/Slide22.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide23.png', 'data/Slide23.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide24.png', 'data/Slide24.png')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide1.JPG', 'data/mySlide1.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide2.JPG', 'data/mySlide2.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide3.JPG', 'data/mySlide3.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide4.JPG', 'data/mySlide4.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide5.JPG', 'data/mySlide5.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide6.JPG', 'data/mySlide6.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide7.JPG', 'data/mySlide7.JPG')
+    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide9.JPG', 'data/mySlide9.JPG')
 
     % TODO Pay attention to quadrant slide
 
     %% Read random pool of files for filenames
-    fileNames_Faces     = Set();
-    fileNames_Mondrian  = Set();
-    fileNames_Neutral   = Set();
-    fileNames_Scenario  = Set();
+    fileNames_FacesOpenMouth       = Set();
+    fileNames_FacesClosedMouth     = Set();
+    fileNames_Mondrian             = Set();
+    fileNames_NeutralOpen          = Set();
+    fileNames_NeutralClosed        = Set();
+    fileNames_ScenarioMaleFear     = Set();
+    fileNames_ScenarioMaleSad      = Set();
+    fileNames_ScenarioMaleHappy    = Set();
+    fileNames_ScenarioFemaleFear   = Set();
+    fileNames_ScenarioFemaleSad    = Set();
+    fileNames_ScenarioFemaleHappy  = Set();
 
     % Get the filenames in the desired directory
-    filedir_Faces       = dir(StimuliFolder);
+    filedir_Faces       = dir(FacesFolder);
     filedir_Mondrian    = dir(MondrianFolder);
-    filedir_Neutral     = dir(NeutralFolder);
+    filedir_Neutral     = dir(NeutralFacesFolder);
     filedir_Scenario    = dir(ScenarioFolder);
 
     OUTPUT_DEBUG = false;
     if( OUTPUT_DEBUG )
-        fprintf('\n\nRead directory %s', StimuliFolder);
+        fprintf('\n\nRead directory %s', FacesFolder);
         filedir_Faces
         fprintf('\n\tLength = %d',length(filedir_Faces));
         %filedir_Faces(1).name
@@ -215,13 +218,17 @@ function CFS_ramp_experiment( CFS_specs )
     %  Note: indices 1 and 2 are "." and ".."
     for f = 3:length(filedir_Faces)
         % Remove any potential double-slashes
-        file = sprintf('%s/%s', StimuliFolder, filedir_Faces(f).name);
+        file = sprintf('%s/%s', FacesFolder, filedir_Faces(f).name);
         file = strrep( file, '//', '/' );
 
         % Add each filename to the set
         % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )            
-            fileNames_Faces.addElement(file);
+        if( ~strcmpi(file, 'THUMBS.DB') )
+            if IsModelMouthOpen(file)
+                fileNames_FacesOpenMouth.addElement(file);
+            else
+                fileNames_FacesClosedMouth.addElement(file);
+            end
         end
     end
 
@@ -243,13 +250,17 @@ function CFS_ramp_experiment( CFS_specs )
     %  Note: indices 1 and 2 are "." and ".."
     for f = 3:length(filedir_Neutral)
         % Remove any potential double-slashes
-        file = sprintf('%s/%s', NeutralFolder, filedir_Neutral(f).name);
+        file = sprintf('%s/%s', NeutralFacesFolder, filedir_Neutral(f).name);
         file = strrep( file, '//', '/' );
 
-        % Add each filename to the set
+        % Add each filename to the appropriate set
         % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )            
-            fileNames_Neutral.addElement(file);
+        if( ~strcmpi(file, 'THUMBS.DB') )
+            if IsModelMouthOpen(file)
+                fileNames_NeutralOpen.addElement(file);
+            else
+                fileNames_NeutralClosed.addElement(file);
+            end
         end
     end
     
@@ -260,35 +271,112 @@ function CFS_ramp_experiment( CFS_specs )
         file = sprintf('%s/%s', ScenarioFolder, filedir_Scenario(f).name);
         file = strrep( file, '//', '/' );
 
-        % Add each filename to the set
+        % Add each filename to the appropriate set
         % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )            
-            fileNames_Scenario.addElement(file);
+        if strcmpi(file, 'THUMBS.DB')            
+        elseif IsScenarioMale(file)
+            if strcmpi(ScenWhichEmotion(file), 'FEAR')
+                fileNames_ScenarioMaleFear.addElement(file);
+            elseif strcmpi(ScenWhichEmotion(file), 'SAD')
+                fileNames_ScenarioMaleSad.addElement(file);
+            elseif strcmpi(ScenWhichEmotion(file), 'HAPPY')
+                fileNames_ScenarioMaleHappy.addElement(file);
+            end
+        else
+            if strcmpi(ScenWhichEmotion(file), 'FEAR')
+                fileNames_ScenarioFemaleFear.addElement(file);
+            elseif strcmpi(ScenWhichEmotion(file), 'SAD')
+                fileNames_ScenarioFemaleSad.addElement(file);
+            elseif strcmpi(ScenWhichEmotion(file), 'HAPPY')
+                fileNames_ScenarioFemaleHappy.addElement(file);
+            end
         end
     end
     
     OUTPUT_DEBUG = true;
     if( OUTPUT_DEBUG )
-        fprintf('\n\nAll the face images have been added');
-        for f = 1:fileNames_Faces.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_Faces.element{f});
+        fprintf('\n\nAll the Open Mouth face images have been added');
+        for f = 1:fileNames_FacesOpenMouth.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_FacesOpenMouth.element{f});
         end
+        
+        fprintf('\n\nAll the Closed Mouth face images have been added');
+        for f = 1:fileNames_FacesClosedMouth.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_FacesClosedMouth.element{f});
+        end        
         
         fprintf('\n\nAll the Mondrian images have been added');
         for f = 1:fileNames_Mondrian.N
             fprintf('\n\tNumer %d: %s', f, fileNames_Mondrian.element{f});
         end
         
-        fprintf('\n\nAll the Neutral images have been added');
-        for f = 1:fileNames_Neutral.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_Neutral.element{f});
+        fprintf('\n\nAll the Neutral Face Open Mouth images have been added');
+        for f = 1:fileNames_NeutralOpen.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_NeutralOpen.element{f});
         end
         
-        fprintf('\n\nAll the Scenario images have been added');
-        for f = 1:fileNames_Scenario.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_Scenario.element{f});
+        fprintf('\n\nAll the Neutral Face Closed Mouth images have been added');
+        for f = 1:fileNames_NeutralClosed.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_NeutralClosed.element{f});
+        end
+        
+        fprintf('\n\nAll the Male Fear Scenario images have been added');
+        for f = 1:fileNames_ScenarioMaleFear.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleFear.element{f});
+        end
+        
+        fprintf('\n\nAll the Male Sad Scenario images have been added');
+        for f = 1:fileNames_ScenarioMaleSad.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleSad.element{f});            
+        end
+        
+        fprintf('\n\nAll the Male Happy Scenario images have been added');
+        for f = 1:fileNames_ScenarioMaleHappy.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleHappy.element{f});
+        end
+        
+        fprintf('\n\nAll the Female Fear Scenario images have been added');
+        for f = 1:fileNames_ScenarioFemaleFear.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleFear.element{f});
+        end
+        
+        fprintf('\n\nAll the Female Sad Scenario images have been added');
+        for f = 1:fileNames_ScenarioFemaleSad.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleSad.element{f});
+        end
+        
+        fprintf('\n\nAll the Female Happy Scenario images have been added');
+        for f = 1:fileNames_ScenarioFemaleHappy.N
+            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleHappy.element{f});
         end
     end
+    
+    %% Defines array of trial types
+    % For each emotion:
+    % - 7 followed by correct emotion
+    % - 4 followed by neutral emotion
+    % - 4 followed by incorrect emotion (2 each)
+    trial_types = {'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD',...
+                   'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', ...
+                   'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', ...
+                   'SAD2NEUTRAL', 'SAD2NEUTRAL', 'SAD2NEUTRAL', 'SAD2NEUTRAL',...
+                   'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL',...
+                   'FEAR2NEUTRAL', 'FEAR2NEUTRAL', 'FEAR2NEUTRAL', 'FEAR2NEUTRAL',...
+                   'SAD2FEAR', 'SAD2FEAR',...
+                   'SAD2HAPPY', 'SAD2HAPPY',...
+                   'HAPPY2SAD', 'HAPPY2SAD',...
+                   'HAPPY2FEAR', 'HAPPY2FEAR',...
+                   'FEAR2SAD', 'FEAR2SAD',...
+                   'FEAR2HAPPY', 'FEAR2HAPPY'};
+    
+    % Choose the order of trial types randomly
+    this_experiment = randsample(trial_types, CFS_specs.NumTrials);
+    
+    % Defining pseudorandom accumulators for ensuing timeseries (see below)
+    neutral_open_mouth_count = 0;
+    neutral_closed_mouth_count = 0;
+    CFS_open_mouth_count = 0;
+    CFS_closed_mouth_count = 0;
 
     %% Set up a timeseries (time-based sequence of images)
     %  See StereoImageTimeSeries.m for more information
@@ -328,10 +416,44 @@ function CFS_ramp_experiment( CFS_specs )
         % CFS display series
         CFSQuadrant = StereoImageTimeSeries(DS);
         
-        % Randomly acquire images for neutrals and scenarios
-        filename_neutral   = fileNames_Neutral.getElementRandomNoReplacement();
-        filename_scenario  = fileNames_Scenario.getElementRandomNoReplacement();
-
+        % Choose what kind of trial this will be
+        this_trial = char(this_experiment(t));
+        
+        % Pseudorandomly acquire image for neutral face, choosing open or closed mouth        
+        rn_neut = rand(1);
+        if neutral_open_mouth_count == ceil(Ntrials / 2)
+            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
+            neutral_closed_mouth_count = neutral_closed_mouth_count + 1;
+        elseif neutral_closed_mouth_count == ceil(Ntrials / 2)
+            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
+            neutral_open_mouth_count = neutral_open_mouth_count + 1;
+        elseif rn_neut < 0.5
+            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
+            neutral_closed_mouth_count = neutral_closed_mouth_count + 1;
+        else
+            filename_neutral   = fileNames_NeutralOpen.getElementRandomNoReplacement();
+            neutral_open_mouth_count = neutral_open_mouth_count + 1;
+        end
+        
+        % Acqire image for scenario that matches gender of neutral face
+        if IsFaceMale(filename_neutral)
+            if strcmpi(this_trial(1:4), 'FEAR')
+                filename_scenario  = fileNames_ScenarioMaleFear.getElementRandomNoReplacement();
+            elseif strcmpi(this_trial(1:3), 'SAD')
+                filename_scenario  = fileNames_ScenarioMaleSad.getElementRandomNoReplacement();
+            elseif strcmpi(this_trial(1:5), 'HAPPY')
+                filename_scenario  = fileNames_ScenarioMaleHappy.getElementRandomNoReplacement();
+            end
+        else
+            if strcmpi(this_trial(1:4), 'FEAR')
+                filename_scenario  = fileNames_ScenarioFemaleFear.getElementRandomNoReplacement();
+            elseif strcmpi(this_trial(1:3), 'SAD')
+                filename_scenario  = fileNames_ScenarioFemaleSad.getElementRandomNoReplacement();
+            elseif strcmpi(this_trial(1:5), 'HAPPY')
+                filename_scenario  = fileNames_ScenarioFemaleHappy.getElementRandomNoReplacement();
+            end
+        end
+        
         % Add neutral face step
         DS.addStep('NAVIGATE', 'STEREO', filename_neutral, filename_neutral);
         
@@ -348,9 +470,63 @@ function CFS_ramp_experiment( CFS_specs )
         CFS_Duration    = max( max(piecewiseContrast_Dom.keyX), max(piecewiseContrast_NonDom.keyX) );
         CFS_Nframes     = CFS_Duration * CFS_Frequency;
 
-        % Randomly acquire images for presentation
+        % Acquire mondrians for CFS presentation
         filename_Mondrian   = fileNames_Mondrian.getElementRandomNoReplacement();
-        filename_Face       = fileNames_Faces.getElementRandomNoReplacement();    
+        
+        
+        % Pseudorandomly acquire correct face for CFS
+        rn_cfs = rand(1);
+        % If trial is '___2NEUTRAL', choose open mouth neutral if the
+        % initial was closed, or vice versa
+        if strendswith(this_trial, 'NEUTRAL')
+            if IsModelMouthOpen(filename_neutral)
+                filename_Face       = strrep(filename_neutral, '2.', '1.');
+            else
+                filename_Face       = strrep(filename_neutral, '1.', '2.');
+            end
+        % otherwise, if open or closed mouth count is full, always choose the opposite    
+        elseif CFS_open_mouth_count == ceil(Ntrials / 2)
+            if strendswith(this_trial, 'SAD')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '2.', '1.');
+            elseif strendswith(this_trial, 'HAPPY')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '2.', '1.');
+            elseif strendswith(this_trial, 'FEAR')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '2.', '1.');
+            end
+        elseif CFS_closed_mouth_count == ceil(Ntrials / 2)
+            if strendswith(this_trial, 'SAD')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '1.', '2.');
+            elseif strendswith(this_trial, 'HAPPY')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '1.', '2.');
+            elseif strendswith(this_trial, 'FEAR')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '1.', '2.');
+            end
+        % if not, choose open or closed mouth randomly and add 1 to the appropriate counter    
+        elseif rn_cfs < 0.5
+            if strendswith(this_trial, 'SAD')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '1.', '2.');
+                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
+            elseif strendswith(this_trial, 'HAPPY')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '1.', '2.');
+                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
+            elseif strendswith(this_trial, 'FEAR')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '1.', '2.');
+                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
+            end
+        else
+            if strendswith(this_trial, 'SAD')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '2.', '1.');
+                CFS_open_mouth_count = CFS_open_mouth_count + 1;
+            elseif strendswith(this_trial, 'HAPPY')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '2.', '1.');
+                CFS_open_mouth_count = CFS_open_mouth_count + 1;
+            elseif strendswith(this_trial, 'FEAR')
+                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '2.', '1.');
+                CFS_open_mouth_count = CFS_open_mouth_count + 1;
+            end
+        end
+        
+        
         filename_Faces{t}   = filename_Face;
 
         %% Prepare the CFS RAMP as a series of images
@@ -417,7 +593,35 @@ function CFS_ramp_experiment( CFS_specs )
         else            
             DS.nextStepDisplay();
         end
-
+        
+        %% Remove necessary objects from their respective Sets to avoid repeats
+        % -> If neutral face was mouth closed, remove the open mouth of the
+        %    same model, or vice versa
+        % -> Remove scenario that corresponds to the opposite gender
+        
+        if IsScenarioMale(filename_scenario)
+            if strcmpi(ScenWhichEmotion(filename_scenario), 'SAD')
+                fileNames_ScenarioFemaleSad.removeElement(strrep(filename_scenario, 'he', 'she'));
+            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'HAPPY')
+                fileNames_ScenarioFemaleHappy.removeElement(strrep(filename_scenario, 'he', 'she'));
+            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'FEAR')
+                fileNames_ScenarioFemaleFear.removeElement(strrep(filename_scenario, 'he', 'she'));
+            end
+        else
+            if strcmpi(ScenWhichEmotion(filename_scenario), 'SAD')
+                fileNames_ScenarioMaleSad.removeElement(strrep(filename_scenario, 'she', 'he'));
+            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'HAPPY')
+                fileNames_ScenarioMaleHappy.removeElement(strrep(filename_scenario, 'she', 'he'));
+            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'FEAR')
+                fileNames_ScenarioMaleFear.removeElement(strrep(filename_scenario, 'she', 'he'));
+            end
+        end
+        
+        if IsModelMouthOpen(filename_neutral)
+            fileNames_NeutralClosed.removeElement(strrep(filename_neutral, '2', '1'));
+        else
+            fileNames_NeutralOpen.removeElement(strrep(filename_neutral, '1', '2'));
+        end
         %% Trial is completed, analyze the results
         %  The participant pressed either ONE or TWO keys
         %  First, ANY key to stop the CFS Ramp
@@ -425,7 +629,32 @@ function CFS_ramp_experiment( CFS_specs )
 
         % Check what quadrant was used for display
         quadrantDisplayed(t) = DS.getLastQueryProperty( 'QUADRANT' );        
-        fprintf('\n\tQuadrant displayed: %d', quadrantDisplayed(t));        
+        fprintf('\n\tQuadrant displayed: %d', quadrantDisplayed(t));
+        
+        % Check what type of trial this was
+        fprintf('\n\tTrial Type: %s', this_trial);
+        
+        % Check which model was used
+        fprintf('\n\tModel ID: %s', GetModelId(filename_Face));
+        
+        % Retrieve the name of the model
+        fprintf('\n\tModel Name: %s', GetModelName(filename_Face));
+        
+        % Check if initial mouth was open or closed
+        if IsModelMouthOpen(filename_neutral)
+            fprintf('\n\tInitial Mouth: Open');
+        else
+             fprintf('\n\tInitial Mouth: Closed');
+        end
+        
+        % Check if CFS mouth was open or closed
+        if IsModelMouthOpen(filename_Face)
+            fprintf('\n\tCFS Mouth: Open');
+        else
+             fprintf('\n\tCFS Mouth: Closed');
+        end
+        
+        %%%% Check what the input rating was %%%%
 
         % Get the TIME of keypress during the CFS ramp
         % If the user guessed a quadrant...
@@ -689,12 +918,13 @@ function writeSpecificationsHeader( OUTPUTSTREAM, CFS_specs )
     fprintf(OUTPUTSTREAM, 'Continuous Flash Suppression (CFS) Contrast Ramp Pilot Program');
     fprintf(OUTPUTSTREAM, '\nVersion\t%s', CFS_specs.SoftwareVersion);
     fprintf(OUTPUTSTREAM, '\nIan Kleckner\nInterdisciplinary Affective Science Lab (IASL)');
+    fprintf(OUTPUTSTREAM, '\nAdapted by Zachary Tweed');    
     fprintf(OUTPUTSTREAM, '\nLog last updated\t%s', datestr(now));
     fprintf(OUTPUTSTREAM, '\nParticipant id\t%s', CFS_specs.PPid);
     fprintf(OUTPUTSTREAM, '\nParticipant dominant eye\t%s', CFS_specs.DominantEyeString);
     fprintf(OUTPUTSTREAM, '\nInter-trial delay (sec)\t%f', CFS_specs.InterTrialDelay);
     fprintf(OUTPUTSTREAM, '\nDesired percent of trials in which user guesses quadrant\t%d', CFS_specs.RequestQuadrantPercent);
-    fprintf(OUTPUTSTREAM, '\nStimuli source folder\t%s', CFS_specs.StimuliFolder);
+    fprintf(OUTPUTSTREAM, '\nFaces source folder\t%s', CFS_specs.FacesFolder);
     fprintf(OUTPUTSTREAM, '\nMondrian source folder\t%s', CFS_specs.MondrianFolder);
 
     fprintf(OUTPUTSTREAM, '\nContrast update frequency (Hz)\t%f', CFS_specs.ContrastUpdateFrequency);
