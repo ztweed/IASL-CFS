@@ -88,14 +88,14 @@ specsTable = DynamicTable(handles.table_input_specs);
 %specsTable.addRow(mode, name, value, description, value_Min, value_Max)
 
 specsTable.addRow('HEADING', 'Experimental Settings', NaN, '', NaN, NaN);
-specsTable.addRow('NUMERIC', 'NumTrials', 45, 'Number of trials to complete (1-Inf)', 1, Inf);
+specsTable.addRow('NUMERIC', 'NumTrials', 3, 'Number of trials to complete (1-Inf)', 1, Inf);
 specsTable.addRow('NUMERIC', 'InterTrialDelay', 3, 'Number of seconds between trials (Note: requires >2 sec to load textures)', 0, Inf);
 specsTable.addRow('NUMERIC', 'RequestQuadrantPercent', 100, 'Percent of trials in which participant must guess the quadrant', 0, 100);
 
 
-specsTable.addRow('FOLDER', 'StimuliFolder', 'data/faces/all_emotions/', 'Folder containing faces for CFS', NaN, NaN);
+specsTable.addRow('FOLDER', 'FacesFolder', 'data/faces/all_emotions/', 'Folder containing faces for CFS', NaN, NaN);
 specsTable.addRow('FOLDER', 'MondrianFolder', 'data/mondrian/', 'Folder containing Mondrian images for CFS', NaN, NaN);
-specsTable.addRow('FOLDER', 'NeutralFolder', 'data/faces/neutrals/', 'Folder containing Neutral Faces', NaN, NaN);
+specsTable.addRow('FOLDER', 'NeutralFacesFolder', 'data/faces/neutrals/', 'Folder containing Neutral Faces', NaN, NaN);
 specsTable.addRow('FOLDER', 'ScenarioFolder', 'data/scenarios/', 'Folder containing Scenarios', NaN, NaN);
 
 specsTable.addRow('HEADING', 'Display Settings', NaN, '', NaN, NaN);
@@ -106,7 +106,7 @@ specsTable.addRow('NUMERIC', 'WindowBorder', 35, 'Percent window width or height
 
 
 specsTable.addRow('NUMERIC', 'Frame_BorderWidth', 32, 'Percent window width for FRAME border (1-49%)', 1, 49);
-specsTable.addRow('NUMERIC', 'Frame_BorderHeight', 39, 'Percent window height for FRAME border (1-49%)', 1, 49);
+specsTable.addRow('NUMERIC', 'Frame_BorderHeight', 30, 'Percent window height for FRAME border (1-49%)', 1, 49);
 specsTable.addRow('NUMERIC', 'Frame_LineWidth', 2, 'Width of frame rectangle (Pixels)', 1, Inf);
 
 specsTable.displayTable();
@@ -222,9 +222,9 @@ CFS_specs.NumTrials                 = specsTable.getValue('NumTrials');
 CFS_specs.InterTrialDelay           = specsTable.getValue('InterTrialDelay');
 CFS_specs.RequestQuadrantPercent    = specsTable.getValue('RequestQuadrantPercent');
 
-CFS_specs.StimuliFolder             = specsTable.getValue('StimuliFolder');
+CFS_specs.FacesFolder               = specsTable.getValue('FacesFolder');
 CFS_specs.MondrianFolder            = specsTable.getValue('MondrianFolder');
-CFS_specs.NeutralFolder             = specsTable.getValue('NeutralFolder');
+CFS_specs.NeutralFacesFolder        = specsTable.getValue('NeutralFacesFolder');
 CFS_specs.ScenarioFolder            = specsTable.getValue('ScenarioFolder');
 
 CFS_specs.ContrastUpdateFrequency   = specsTable.getValue('ContrastUpdateFrequency');
