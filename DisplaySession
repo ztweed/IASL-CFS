@@ -259,9 +259,9 @@ classdef DisplaySession < handle
             % presentation_mode
             %  STEREO        -> Stereo display (Only option at this point)
             %
-            % DOM_IMAGE    -> Specify filename for image on dominant eye
+            %  DOM_IMAGE     -> Specify filename for image on dominant eye
             %
-            % NONDOM_IMAGE   -> Specify filename for image on nondominant eye
+            %  NONDOM_IMAGE  -> Specify filename for image on nondominant eye
             
             % Must have valid WINDOW before steps can be added
             % (needed for textures)
@@ -457,6 +457,8 @@ classdef DisplaySession < handle
                         Screen('SelectStereoDrawBuffer', obj.WINDOW, obj.DOM_DISPLAY);
                         Screen('DrawTexture', obj.WINDOW, obj.texture_dom{s}, [], ...
                             obj.getDestinationRect( obj.image_dom{s}, quadrant ));
+                        %%%%%%%% UNTESTED %%%%%%%%%
+                        %Screen('DrawText', strcat('This is', GetModelName(filename(obj.filename_nondom{s}))));
                         
                         % Draw a framing rectangle, if desired
                         if( obj.DRAW_FRAMING_RECTANGLE )
