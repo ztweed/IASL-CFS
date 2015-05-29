@@ -481,8 +481,10 @@ function CFS_ramp_experiment( CFS_specs )
         if strendswith(this_trial, 'NEUTRAL')
             if IsModelMouthOpen(filename_neutral)
                 filename_Face       = strrep(filename_neutral, '2.', '1.');
+                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
             else
                 filename_Face       = strrep(filename_neutral, '1.', '2.');
+                CFS_open_mouth_count = CFS_open_mouth_count + 1;
             end
         % otherwise, if open or closed mouth count is full, always choose the opposite    
         elseif CFS_open_mouth_count == ceil(Ntrials / 2)
@@ -528,6 +530,8 @@ function CFS_ramp_experiment( CFS_specs )
         
         
         filename_Faces{t}   = filename_Face;
+        
+        assignin('base', 'ds', DS);
 
         %% Prepare the CFS RAMP as a series of images
         timeStart = 0;
@@ -626,7 +630,7 @@ function CFS_ramp_experiment( CFS_specs )
         %  The participant pressed either ONE or TWO keys
         %  First, ANY key to stop the CFS Ramp
         %  Second, if REQUEST_QUADRANT_GUESS is true, a key to guess which quadrant the image was in
-
+        
         % Check what quadrant was used for display
         quadrantDisplayed(t) = DS.getLastQueryProperty( 'QUADRANT' );        
         fprintf('\n\tQuadrant displayed: %d', quadrantDisplayed(t));
