@@ -70,5 +70,22 @@ classdef Set < handle
             obj.random_index = randperm(obj.N);
             obj.irandom = 1;            
         end
+        
+        function removeElement( obj, e )
+        %% Removes an Element from a Set
+        %  Used to eliminate closed mouth versions of open mouth faces that
+        %  have already been used, or vice versa
+        
+        % Find and remove the desired element from the set
+        elem = find(strcmpi(obj.element, e));
+        obj.element( elem ) = [];
+        
+        % Subtract one from obj.N
+        obj.N = obj.N-1;
+        
+        % Find and remove the largest element of the random index
+        k = find(obj.random_index == max(obj.random_index));
+        obj.random_index(k) = []; 
+        end
     end
 end
