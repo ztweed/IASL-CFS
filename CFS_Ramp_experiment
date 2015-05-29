@@ -1,955 +1,1026 @@
-% Ian Kleckner
-% Interdisciplinary Affective Science Lab (IASL)
-% Continuous Flash Suppression (CFS) initializer for contrast ramp expts
-%
-% 2011/04/25 Sandbox for CFS programming (trying minor tasks)
-%            Display time-dependent contrastMask 
-% 2011/05/04 Update for actual pilot experiment
-% 2011/05/18 Add Diary
-% 2011/06/02 Update CFS Ramp experiment protocol (see note "2011/06/02")
-%            Use StimuliFolder and MondrianFolder
-%            RequestQuadrantFraction determines probability of having
-%             user guess a quadrant post-CFS
-%
-% 2011/07/14 Enhance memory usage to prevent crash, more command window output
-%            Use writeSpecificationsHeader function
-%            Add framing rectangle
-%
-% 2011/07/20 Do not load Thumbs.DB files, write log.txt after each trial
-%            Prevent truncation of trials after ~4 sec despite what the
-%            initializer specifies
-%
-% 2011/11/15 Eric added randomization fix so trials were not always shown
-%            in same order. Avoid same random number sequence upon MATLAB
-%            reboot
-%
-% TODO
-
-function CFS_ramp_experiment( CFS_specs )
-    %% Parse the input variable    
-    MinBorderPercent        = CFS_specs.MinBorderPercent;
-    FullScreenMode          = CFS_specs.FullScreenMode;
-
-    currentDirectory        = CFS_specs.currentDirectory;
-    SoftwareVersion         = CFS_specs.SoftwareVersion;
-
-    % Read in piecewiseContrast_Dom, contrast2
-    piecewiseContrast_Dom      = CFS_specs.piecewiseContrast_Dom;
-    piecewiseContrast_NonDom   = CFS_specs.piecewiseContrast_NonDom;
-
-    HideMousePointer        = CFS_specs.HideMousePointer;
-
-    Ntrials                 = CFS_specs.NumTrials;
-    InterTrialDelay         = CFS_specs.InterTrialDelay;
-
-    FacesFolder             = CFS_specs.FacesFolder;
-    MondrianFolder          = CFS_specs.MondrianFolder;
-    NeutralFacesFolder      = CFS_specs.NeutralFacesFolder;
-    ScenarioFolder          = CFS_specs.ScenarioFolder;
-
-    RequestQuadrantFraction = CFS_specs.RequestQuadrantPercent / 100;
-
-    PPid                    = CFS_specs.PPid;
-    % Convert PPid to a string, if provided as number
-    if( isnumeric(PPid) )
-        PPid = sprintf('%d', PPid);
-    end
-    DominantEyeString       = CFS_specs.DominantEyeString;
-
-    % Rate of presentation of screen images
-    %  Set as high as the monitor refresh rate (e.g., 60 Hz)
-    %  Best if this is an integer divisor of refresh rate (e.g., 10, 20, 30 Hz NOT 25 Hz, 59 Hz)
-    ContrastUpdateFrequency     = CFS_specs.ContrastUpdateFrequency;       
-
-    %% Initialize
-    % Clear command window
-    clc;
-    
-    % To address a bug
-    cd(currentDirectory);
-    
-    % Save results to files
-    PPid_nospaces = strrep(PPid, ' ', '_');
-    output_dir = sprintf('output--%s--%s',datestr(now, 'yyyy.mm.dd-HH-MM'), PPid_nospaces);
-    mkdir(output_dir);
-    
-    % Start saving contents of command window to log file
-    diary( sprintf('%s/diary.txt', output_dir) )
-    
-    % Write header for program output
-    OUTPUTSTREAM = 1; % 1 => command window
-    writeSpecificationsHeader( OUTPUTSTREAM, CFS_specs );
-
-    
-   % Obtain new seed for random number generator [2011/11/15]
-   %  This way, subsequent instances of MATLAB will be random with respect
-   %  to one another
-   %   On MATLAB R2011b: rng shuffle
-   newStream = RandStream('mt19937ar', 'Seed', sum(100*clock))
-   RandStream.setGlobalStream(newStream);
-    
-    fprintf('\n\n');
-    fprintf('\n___________________________________________________________\n');
-    
-    % Enable unified mode of KbName, so KbName accepts identical key names on
-    % all operating systems (KbDemo.m)
-    KbName('UnifyKeyNames');
-
-    % This script calls Psychtoolbox commands available only in OpenGL-based
-    % versions of the Psychtoolbox.
-    AssertOpenGL;
-
-    %% Set up the display session
-    %  See DisplaySession.m for more information
-    % TODO % Load this information from a file (instead of hard-coded here)
-
-    % Create a DisplaySession
-    DS = DisplaySession;
-
-    % The minimum border percentage for scaling displayed images (<50)
-    DS.setMinBorderPercent( MinBorderPercent );
-
-    % Set the eye dominance
-    DS.setEyeDominance( DominantEyeString )
-
-    if( FullScreenMode )
-        rect_windowed = [];
-    else
-        X_upper = 0;
-        Y_upper = 0;
-        X_width = 600;
-        Y_width = 400;
-        rect_windowed = [X_upper, Y_upper, X_upper+X_width, Y_upper+Y_width];
-    end
-
-    % Stereo-mode as per the PTB documentation (see below)
-    %  0 -> no stereo, 4 -> split left/right
-    stereoMode = 4;
-
-    % Create the PTB window for display
-    [window, rect] = DS.createWindow(rect_windowed, stereoMode);    
-    
-%   Set the framing rectangle
-    DRAW_FRAMING_RECTANGLE  = true;
-    COLOR_RGB               = [255 255 255];
-    border_percent_X        = CFS_specs.Frame_BorderWidth;
-    border_percent_Y        = CFS_specs.Frame_BorderHeight;
-    PIXEL_WIDTH             = CFS_specs.Frame_LineWidth;    
-    DS.setFramingRectangle( DRAW_FRAMING_RECTANGLE, COLOR_RGB, border_percent_X, border_percent_Y, PIXEL_WIDTH );
-
-    % Set to maximum priority (Need root privilages to do this...)
-    %priorityLevel=MaxPriority(window);
-    %Priority(priorityLevel);
-
-    % Hide the mouse cursor
-    if( HideMousePointer )
-        HideCursor();
-    end
-
-    %% Add steps to the display session
-    % addStep( step_type, presentation_mode, DOM_IMAGE, NONDOM_IMAGE );
+classdef DisplaySession < handle
+    %DisplaySession For a sequence of stereo-image presntations, with user input    
+    % Ian Kleckner
+    % Interdisciplinary Affective Science Lab (IASL)
+    % Continuous Flash Suppression (CFS)
     %
-    % step_type
-    %  (a) NAVIGATE      -> Navigate through steps forward/backward
-    %  (b) INPUT         -> Wait for valid input from keyboard (1-4, or Esc)
-    %                       then go to next step in display loop
-    %  (c) DELAY         -> Show image, then wait a delay
-    %                       Specified delay (sec) with additional final argument
-    %  (d) EXIT          -> Exit the display loop
+    % 2011/02/19 Start coding
+    % 2011/02/23 Move getDestinationRect() to separate file
+    %            Add StereoImageTimeSeries
+    % 2011/03/13 Change all instances of left -> dom, and right -> nondom
+    % 2011/05/04 Store input from SITS, if necessary
+    % 2011/05/05 Add DELAY mode
+    % 2011/05/08 Change pp_response_value from cell {} to array []
+    %            Change keyboard input to number pad too
     %
-    % presentation_mode
-    %  STEREO        -> Stereo display (Only option at this point)
-    %
-    % DOM_IMAGE    -> Specify filename for image on dominant eye
-    %
-    % NONDOM_IMAGE   -> Specify filename for image on nondominant eye
-
-    % Add the first navigation steps (just for testing)
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide02.png', 'data/Slide02.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide03.png', 'data/Slide01.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide01.png', 'data/Slide04.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide05.png', 'data/Slide01.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide01.png', 'data/Slide06.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide07.png', 'data/Slide08.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide09.png', 'data/Slide10.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide11.png', 'data/Slide11.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/Slide12.png', 'data/Slide12.png')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide1.JPG', 'data/mySlide1.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide2.JPG', 'data/mySlide2.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide3.JPG', 'data/mySlide3.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide4.JPG', 'data/mySlide4.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide5.JPG', 'data/mySlide5.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide6.JPG', 'data/mySlide6.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide7.JPG', 'data/mySlide7.JPG')
-    DS.addStep('NAVIGATE', 'STEREO', 'data/mySlide9.JPG', 'data/mySlide9.JPG')
-
-    % TODO Pay attention to quadrant slide
-
-    %% Read random pool of files for filenames
-    fileNames_FacesOpenMouth       = Set();
-    fileNames_FacesClosedMouth     = Set();
-    fileNames_Mondrian             = Set();
-    fileNames_NeutralOpen          = Set();
-    fileNames_NeutralClosed        = Set();
-    fileNames_ScenarioMaleFear     = Set();
-    fileNames_ScenarioMaleSad      = Set();
-    fileNames_ScenarioMaleHappy    = Set();
-    fileNames_ScenarioFemaleFear   = Set();
-    fileNames_ScenarioFemaleSad    = Set();
-    fileNames_ScenarioFemaleHappy  = Set();
-
-    % Get the filenames in the desired directory
-    filedir_Faces       = dir(FacesFolder);
-    filedir_Mondrian    = dir(MondrianFolder);
-    filedir_Neutral     = dir(NeutralFacesFolder);
-    filedir_Scenario    = dir(ScenarioFolder);
-
-    OUTPUT_DEBUG = false;
-    if( OUTPUT_DEBUG )
-        fprintf('\n\nRead directory %s', FacesFolder);
-        filedir_Faces
-        fprintf('\n\tLength = %d',length(filedir_Faces));
-        %filedir_Faces(1).name
-        %filedir_Faces(2).name
-        %filedir_Faces(3).name
-    end
-
-    % Read through each file starting with index 3
-    %  Note: indices 1 and 2 are "." and ".."
-    for f = 3:length(filedir_Faces)
-        % Remove any potential double-slashes
-        file = sprintf('%s/%s', FacesFolder, filedir_Faces(f).name);
-        file = strrep( file, '//', '/' );
-
-        % Add each filename to the set
-        % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )
-            if IsModelMouthOpen(file)
-                fileNames_FacesOpenMouth.addElement(file);
-            else
-                fileNames_FacesClosedMouth.addElement(file);
-            end
-        end
-    end
-
-    % Read through each file starting with index 3
-    %  Note: indices 1 and 2 are "." and ".."
-    for f = 3:length(filedir_Mondrian)
-        % Remove any potential double-slashes
-        file = sprintf('%s/%s', MondrianFolder, filedir_Mondrian(f).name);
-        file = strrep( file, '//', '/' );
-
-        % Add each filename to the set
-        % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )
-            fileNames_Mondrian.addElement(file);
-        end
-    end
+    % TODO
+    %  - Store the start time for the program ?
+    %  - Read input file
+    %  - Change strings 'TIMESERIES' to a variable TIMESERIES that equals 'TIMESERIES' (to catch typos)
     
-    % Read through each file starting with index 3
-    %  Note: indices 1 and 2 are "." and ".."
-    for f = 3:length(filedir_Neutral)
-        % Remove any potential double-slashes
-        file = sprintf('%s/%s', NeutralFacesFolder, filedir_Neutral(f).name);
-        file = strrep( file, '//', '/' );
+    
+    properties (SetAccess = private)
+        %% These can only be set via functions (but can be read directly via "."
+        
+        % ------------- Variables for defining available steps -----------
+        % Information about the steps to display
+        Nsteps          = 0;    % Number of steps in session        
+        step_type       = {};   % String identifying INPUT, NAVIGATE, or TIMESERIES        
+        
+        % For INPUT or NAVIGATE steps, that each show a single image
+        filename_dom   = {};   % Array of image filenames for dom eye
+        filename_nondom  = {};
+        
+        image_dom      = {};   % Array of loaded images (using imread())
+        image_nondom     = {};
+        
+        texture_dom     = {};   % Textures created for Psychophysics Toolbox
+        texture_nondom   = {};
+        
+        responseKeys    = [];
+        responseValues  = [];
+        
+        nextKey     = NaN;
+        previousKey = NaN;
+        
+        % For DELAY step
+        delay_time      = [];       % Delay time in seconds (only applies for DELAY step)
+        
+        % For TIMESERIES step type
+        SITS        = {}; % Cell array of the StereImageTimeSeries instances        
+        
+        
+        %response_value          = [];   % Value of response key pressed by user
+        %response_time           = [];   % Time for response after slide is shown
+        
+        %query_rotation          = [];
+        %query_quadrant          = [];
+        %query_contrast_log10    = [];
+        
+        % --------- Variables for participant experience through session
+        % The participant (pp) may move forward/backward through steps, and so each of
+        % these displays are logged with their time of display
+        current_step        = 1;    % Current step number
+        
+        %Nsteps_displayed    = 0;    % Steps are marked once they are displayed
+        %steps_displayed     = [];   % Order of each step        
+        
+        start_tic           = 0;    % Holds the "tic" command upon display of first step
+        %etime_at_step_start = [];   % Time at which each step was started
+        
+        pp_Nsteps                       = 0;    % Number of steps the participant has traversed
+        pp_steps_traversed              = [];   % Each element is the step number displayed
+        pp_etime                        = [];   % Holds time at which each step was started
+        
+        pp_response_value               = [];   % Value of response key pressed
+        pp_response_time                = [];   % Time for response after slide is shown
+        pp_SITS_specs                   = {};   % Cell array of specifications for each instance of SITS
+        pp_query_image_rotation         = [];   % Rotation of the query image in a StereoImageTimeSeries
+        pp_query_image_quadrant         = [];   % Quadrant
+        pp_query_image_contrastlog10    = [];   % Contrast
+        
+        % --------------- Variables for display ---------------------------
+        % Stereo / mono mode (Note: program only works in stereo, now)        
+        presentation_mode   = {};   % Cell array of presentation mode (stereo / full)
+        is_stereo           = {};   % (Boolean) the current step is stereo mode        
+        stereo_mode         = 4;    % Stereo-mode from PTB (4=>Split display on single monitor)        
+        
+        LEFT_DISPLAY        = 0;    % Left display is #0 (for stereo-mode)
+        RIGHT_DISPLAY       = 1;    % Right display is #1 (for stereo-mode)
+        
+        DOM_DISPLAY         = 0;    % The dominant side (0,1)=(left,right)
+        NONDOM_DISPLAY      = 1;        
+        
+        % How the class displays the steps using PTB
+        WINDOW          = NaN;      % Window handle for psychophysics toolbox
+                                    % Required for creating textures
 
-        % Add each filename to the appropriate set
-        % (As long as its not one of those Thumbs.db temp files...)
-        if( ~strcmpi(file, 'THUMBS.DB') )
-            if IsModelMouthOpen(file)
-                fileNames_NeutralOpen.addElement(file);
-            else
-                fileNames_NeutralClosed.addElement(file);
-            end
-        end
+        % This specifies the percentage of the window width (or height)
+        %  used to border each image (must be < 50)
+        % Some images need enlargement, and some reduction, to fit the window
+        minBorderPercent    = 10;
+        
+        % --------------- Frame rectangle around all images (2011/07/14) --
+        % This is to ensure proper 
+        DRAW_FRAMING_RECTANGLE  = true;            % (true/false) Draw the rectangle
+        frame_Color             = [255 255 255];    % 0-255 [R G B] color triplet
+        frame_Width             = 3;                % Width of rectangle line in pixels
+        frame_Rect              = [0 0 1 1];        % RECT = [X_Left, Y_Top, X_Width, Y_Height]
+        
     end
-    
-    % Read through each file starting with index 3
-    %  Note: indices 1 and 2 are "." and ".."
-    for f = 3:length(filedir_Scenario)
-        % Remove any potential double-slashes
-        file = sprintf('%s/%s', ScenarioFolder, filedir_Scenario(f).name);
-        file = strrep( file, '//', '/' );
-
-        % Add each filename to the appropriate set
-        % (As long as its not one of those Thumbs.db temp files...)
-        if strcmpi(file, 'THUMBS.DB')            
-        elseif IsScenarioMale(file)
-            if strcmpi(ScenWhichEmotion(file), 'FEAR')
-                fileNames_ScenarioMaleFear.addElement(file);
-            elseif strcmpi(ScenWhichEmotion(file), 'SAD')
-                fileNames_ScenarioMaleSad.addElement(file);
-            elseif strcmpi(ScenWhichEmotion(file), 'HAPPY')
-                fileNames_ScenarioMaleHappy.addElement(file);
+        
+    methods
+        function obj = DisplaySession( WINDOW )
+            %% Constructor function (if a PTB WINDOW handle already exists)           
+            if( nargin == 1 )
+                obj.WINDOW = WINDOW;
             end
-        else
-            if strcmpi(ScenWhichEmotion(file), 'FEAR')
-                fileNames_ScenarioFemaleFear.addElement(file);
-            elseif strcmpi(ScenWhichEmotion(file), 'SAD')
-                fileNames_ScenarioFemaleSad.addElement(file);
-            elseif strcmpi(ScenWhichEmotion(file), 'HAPPY')
-                fileNames_ScenarioFemaleHappy.addElement(file);
-            end
-        end
-    end
-    
-    OUTPUT_DEBUG = true;
-    if( OUTPUT_DEBUG )
-        fprintf('\n\nAll the Open Mouth face images have been added');
-        for f = 1:fileNames_FacesOpenMouth.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_FacesOpenMouth.element{f});
-        end
-        
-        fprintf('\n\nAll the Closed Mouth face images have been added');
-        for f = 1:fileNames_FacesClosedMouth.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_FacesClosedMouth.element{f});
-        end        
-        
-        fprintf('\n\nAll the Mondrian images have been added');
-        for f = 1:fileNames_Mondrian.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_Mondrian.element{f});
-        end
-        
-        fprintf('\n\nAll the Neutral Face Open Mouth images have been added');
-        for f = 1:fileNames_NeutralOpen.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_NeutralOpen.element{f});
-        end
-        
-        fprintf('\n\nAll the Neutral Face Closed Mouth images have been added');
-        for f = 1:fileNames_NeutralClosed.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_NeutralClosed.element{f});
-        end
-        
-        fprintf('\n\nAll the Male Fear Scenario images have been added');
-        for f = 1:fileNames_ScenarioMaleFear.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleFear.element{f});
-        end
-        
-        fprintf('\n\nAll the Male Sad Scenario images have been added');
-        for f = 1:fileNames_ScenarioMaleSad.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleSad.element{f});            
-        end
-        
-        fprintf('\n\nAll the Male Happy Scenario images have been added');
-        for f = 1:fileNames_ScenarioMaleHappy.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioMaleHappy.element{f});
-        end
-        
-        fprintf('\n\nAll the Female Fear Scenario images have been added');
-        for f = 1:fileNames_ScenarioFemaleFear.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleFear.element{f});
-        end
-        
-        fprintf('\n\nAll the Female Sad Scenario images have been added');
-        for f = 1:fileNames_ScenarioFemaleSad.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleSad.element{f});
-        end
-        
-        fprintf('\n\nAll the Female Happy Scenario images have been added');
-        for f = 1:fileNames_ScenarioFemaleHappy.N
-            fprintf('\n\tNumer %d: %s', f, fileNames_ScenarioFemaleHappy.element{f});
-        end
-    end
-    
-    %% Defines array of trial types
-    % For each emotion:
-    % - 7 followed by correct emotion
-    % - 4 followed by neutral emotion
-    % - 4 followed by incorrect emotion (2 each)
-    trial_types = {'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD', 'SAD2SAD',...
-                   'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', 'HAPPY2HAPPY', ...
-                   'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', 'FEAR2FEAR', ...
-                   'SAD2NEUTRAL', 'SAD2NEUTRAL', 'SAD2NEUTRAL', 'SAD2NEUTRAL',...
-                   'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL', 'HAPPY2NEUTRAL',...
-                   'FEAR2NEUTRAL', 'FEAR2NEUTRAL', 'FEAR2NEUTRAL', 'FEAR2NEUTRAL',...
-                   'SAD2FEAR', 'SAD2FEAR',...
-                   'SAD2HAPPY', 'SAD2HAPPY',...
-                   'HAPPY2SAD', 'HAPPY2SAD',...
-                   'HAPPY2FEAR', 'HAPPY2FEAR',...
-                   'FEAR2SAD', 'FEAR2SAD',...
-                   'FEAR2HAPPY', 'FEAR2HAPPY'};
-    
-    % Choose the order of trial types randomly
-    this_experiment = randsample(trial_types, CFS_specs.NumTrials);
-    
-    % Defining pseudorandom accumulators for ensuing timeseries (see below)
-    neutral_open_mouth_count = 0;
-    neutral_closed_mouth_count = 0;
-    CFS_open_mouth_count = 0;
-    CFS_closed_mouth_count = 0;
+            
+            if( IsWin )
+                % KbDemo
+                % 1 of 4.  Testing KbCheck and KbName: press a key to see its number.
+                % Press the escape key to proceed to the next demo.
+                % You pressed key 97 which is 1
+                % You pressed key 98 which is 2
+                % You pressed key 99 which is 3
+                % You pressed key 100 which is 4
+                % You pressed key 101 which is 5
+                % You pressed key 102 which is 6
+                % You pressed key 103 which is 7
+                % You pressed key 104 which is 8
+                % You pressed key 105 which is 9
+                % You pressed key 96 which is 0
+                % 1234567890
+                % You pressed key 13 which is Return
+                % You pressed key 49 which is 1!
+                % You pressed key 50 which is 2@
+                % You pressed key 51 which is 3#
+                % You pressed key 52 which is 4$
+                % You pressed key 53 which is 5%
+                % You pressed key 54 which is 6^
+                % You pressed key 55 which is 7&
+                % You pressed key 56 which is 8*
+                % You pressed key 57 which is 9(
+                % You pressed key 48 which is 0)
+                % You pressed key 27 which is ESCAPE
+                
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('5'), ... Keypad 5
+                                KbName('4'), ... Keypad 4
+                                KbName('1'), ... Keypad 1
+                                KbName('2'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
 
-    %% Set up a timeseries (time-based sequence of images)
-    %  See StereoImageTimeSeries.m for more information
-    % addImage( START_TIME, SOURCE_MODE_DOMINANT,  DOMINANT_IMAGE_NAME,  SOURCE_MODE_NONDOMINANT,  NONDOMINANT_IMAGE_NAME );
-    %
-    % START_TIME              -> Time to start displaying image (sec)
-    %
-    % SOURCE_MODE must be specified for both DOMINANT and NONDOMINANT images
-    %  (a) FIXED             -> Display image as fixed orientation and quadrant
-    %  (b) RANDOM_POOL       -> Select random image from pool
-    %  (c) RANDOM_QUADRANT   -> Randomly select quadrant for display (1,2,3,4)
-    %  (d) RANDOM_ROTATION_2 -> Randomly select rotation angle (0, 180)
-    %  (e) RANDOM_ROTATION_4 -> Randomly select rotation angle (0, 90, 180, 270)                        
-    %  (f) UNCHANGED         -> Display whatever was in the prior step
-    %
-    % IMAGE_NAME specified for both DOMINANT and NONDOMINANT images
-    %  IMAGE             -> Specify image filename
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
 
-    %% 2011/06/02 Specifications for CFS Ramp presentation
-    %  CFS ramp (a few seconds)
-    %  Participant can interrupt ramp by pressing ANY key
-    %   -> Log time of keypress
-    %  Backwards mask for 0.5 sec
-    %  Ask user: What quadrant was the image in? Use keypad 4,5,1,2
-    %   -> Receive input
-    %  Set up for next trial (takes a few sec)
-    %  Wait remainder of total inter-trial-interval (a few sec)
-    %
-    for t = 1:Ntrials
-        %% Set up the current trial
-        time_startTrial = tic();
-        fprintf('\n\nTrial number %d / %d', t, Ntrials);    
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');
+                
+            elseif( ismac )
+                % >> KbDemo
+                % 1 of 4.  Testing KbCheck and KbName: press a key to see its number.
+                % Press the escape key to proceed to the next demo.
+                % You pressed key 89 which is 1
+                % You pressed key 90 which is 2
+                % You pressed key 91 which is 3
+                % You pressed key 92 which is 4
+                % You pressed key 94 which is 6
+                % You pressed key 95 which is 7
+                % You pressed key 96 which is 8
+                % You pressed key 97 which is 9
+                % You pressed key 98 which is 0
+                % 1234567890
+                % You pressed key 88 which is ENTER
+                % You pressed key 30 which is 1!
+                % You pressed key 31 which is 2@
+                % You pressed key 32 which is 3#
+                % You pressed key 33 which is 4$
+                % You pressed key 34 which is 5%
+                % You pressed key 35 which is 6^
+                % You pressed key 36 which is 7&
+                % You pressed key 37 which is 8*
+                % You pressed key 38 which is 9(
+                % You pressed key 39 which is 0)
+                % You pressed key 80 which is LeftArrow
+                % You pressed key 79 which is RightArrow
+                % You pressed key 82 which is UpArrow
+                % You pressed key 81 which is DownArrow
+                % You pressed key 41 which is ESCAPE
+                
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('5'), ... Keypad 5
+                                KbName('4'), ... Keypad 4
+                                KbName('1'), ... Keypad 1
+                                KbName('2'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
 
-        % Request the quadrant guess from the participant?
-        REQUEST_QUADRANT_GUESS = rand() <= RequestQuadrantFraction;
-        
-        % CFS display series
-        CFSQuadrant = StereoImageTimeSeries(DS);
-        
-        % Choose what kind of trial this will be
-        this_trial = char(this_experiment(t));
-        
-        % Pseudorandomly acquire image for neutral face, choosing open or closed mouth        
-        rn_neut = rand(1);
-        if neutral_open_mouth_count == ceil(Ntrials / 2)
-            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
-            neutral_closed_mouth_count = neutral_closed_mouth_count + 1;
-        elseif neutral_closed_mouth_count == ceil(Ntrials / 2)
-            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
-            neutral_open_mouth_count = neutral_open_mouth_count + 1;
-        elseif rn_neut < 0.5
-            filename_neutral   = fileNames_NeutralClosed.getElementRandomNoReplacement();
-            neutral_closed_mouth_count = neutral_closed_mouth_count + 1;
-        else
-            filename_neutral   = fileNames_NeutralOpen.getElementRandomNoReplacement();
-            neutral_open_mouth_count = neutral_open_mouth_count + 1;
-        end
-        
-        % Acqire image for scenario that matches gender of neutral face
-        if IsFaceMale(filename_neutral)
-            if strcmpi(this_trial(1:4), 'FEAR')
-                filename_scenario  = fileNames_ScenarioMaleFear.getElementRandomNoReplacement();
-            elseif strcmpi(this_trial(1:3), 'SAD')
-                filename_scenario  = fileNames_ScenarioMaleSad.getElementRandomNoReplacement();
-            elseif strcmpi(this_trial(1:5), 'HAPPY')
-                filename_scenario  = fileNames_ScenarioMaleHappy.getElementRandomNoReplacement();
-            end
-        else
-            if strcmpi(this_trial(1:4), 'FEAR')
-                filename_scenario  = fileNames_ScenarioFemaleFear.getElementRandomNoReplacement();
-            elseif strcmpi(this_trial(1:3), 'SAD')
-                filename_scenario  = fileNames_ScenarioFemaleSad.getElementRandomNoReplacement();
-            elseif strcmpi(this_trial(1:5), 'HAPPY')
-                filename_scenario  = fileNames_ScenarioFemaleHappy.getElementRandomNoReplacement();
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
+
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');
+                
+            elseif( isLinux )
+                % TODO % Read keybidning info from a settings file
+                %KbName('UnifyKeyNames');
+
+                % Allowable response keys, and their numerical values
+                obj.responseKeys = {KbName('1!'), ...
+                                KbName('2@'), ...
+                                KbName('3#'), ...
+                                KbName('4$'),...
+                                ...
+                                KbName('KP_Begin'), ... Keypad 5
+                                KbName('KP_Left'), ... Keypad 4
+                                KbName('KP_End'), ... Keypad 1
+                                KbName('KP_Down'), ... Keypad 2
+                                ...
+                                KbName('ESCAPE')};
+
+                obj.responseValues  = [1, 2, 3, 4, ...
+                                   1, 2, 3, 4, ...
+                                   -1];
+
+                % For navigation
+                obj.nextKey     = KbName('RightArrow');
+                obj.previousKey = KbName('LeftArrow');           
             end
         end
         
-        % Add neutral face step
-        DS.addStep('NAVIGATE', 'STEREO', filename_neutral, filename_neutral);
-        
-        % Add scenario step
-        DS.addStep('NAVIGATE', 'STEREO', filename_scenario, filename_scenario);
-        
-        % Add black dot step to display session
-        DS.addStep('DELAY', 'STEREO', 'data/dot-white_on_black.jpg', 'data/dot-white_on_black.jpg', 0.5);
-
-        % CFS frequency in Hz -> determines inter-frame delay for Mondrians
-        CFS_Frequency   = 10;
-        
-        % Get the total time for CFS display from the contrast ramp
-        CFS_Duration    = max( max(piecewiseContrast_Dom.keyX), max(piecewiseContrast_NonDom.keyX) );
-        CFS_Nframes     = CFS_Duration * CFS_Frequency;
-
-        % Acquire mondrians for CFS presentation
-        filename_Mondrian   = fileNames_Mondrian.getElementRandomNoReplacement();
-        
-        
-        % Pseudorandomly acquire correct face for CFS
-        rn_cfs = rand(1);
-        % If trial is '___2NEUTRAL', choose open mouth neutral if the
-        % initial was closed, or vice versa
-        if strendswith(this_trial, 'NEUTRAL')
-            if IsModelMouthOpen(filename_neutral)
-                filename_Face       = strrep(filename_neutral, '2.', '1.');
-                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
-            else
-                filename_Face       = strrep(filename_neutral, '1.', '2.');
-                CFS_open_mouth_count = CFS_open_mouth_count + 1;
+        function addStep( obj, step_type, presentation_mode, filename_dom, filename_nondom, varargin )
+            %% Adds a step to the session            
+            % addStep( step_type, presentation_mode, DOM_IMAGE, NONDOM_IMAGE );
+            %
+            % step_type
+            %  (a) NAVIGATE      -> Navigate through steps forward/backward
+            %  (b) INPUT         -> Wait for valid input from keyboard (1-4, or Esc)
+            %                       then go to next step in display loop
+            %  (c) DELAY         -> Show image, then wait a delay
+            %                       Specified delay (sec) with additional final argument
+            %  (d) EXIT          -> Exit the display loop
+            %
+            % presentation_mode
+            %  STEREO        -> Stereo display (Only option at this point)
+            %
+            %  DOM_IMAGE     -> Specify filename for image on dominant eye
+            %
+            %  NONDOM_IMAGE  -> Specify filename for image on nondominant eye
+            
+            % Must have valid WINDOW before steps can be added
+            % (needed for textures)
+            if( isnan(obj.WINDOW) )
+                error('Create and set window before loading images. Window is required for textures');
             end
-        % otherwise, if open or closed mouth count is full, always choose the opposite    
-        elseif CFS_open_mouth_count == ceil(Ntrials / 2)
-            if strendswith(this_trial, 'SAD')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '2.', '1.');
-            elseif strendswith(this_trial, 'HAPPY')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '2.', '1.');
-            elseif strendswith(this_trial, 'FEAR')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '2.', '1.');
-            end
-        elseif CFS_closed_mouth_count == ceil(Ntrials / 2)
-            if strendswith(this_trial, 'SAD')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '1.', '2.');
-            elseif strendswith(this_trial, 'HAPPY')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '1.', '2.');
-            elseif strendswith(this_trial, 'FEAR')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '1.', '2.');
-            end
-        % if not, choose open or closed mouth randomly and add 1 to the appropriate counter    
-        elseif rn_cfs < 0.5
-            if strendswith(this_trial, 'SAD')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '1.', '2.');
-                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
-            elseif strendswith(this_trial, 'HAPPY')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '1.', '2.');
-                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
-            elseif strendswith(this_trial, 'FEAR')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '1.', '2.');
-                CFS_closed_mouth_count = CFS_closed_mouth_count + 1;
-            end
-        else
-            if strendswith(this_trial, 'SAD')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'sad')), '2.', '1.');
-                CFS_open_mouth_count = CFS_open_mouth_count + 1;
-            elseif strendswith(this_trial, 'HAPPY')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'hap')), '2.', '1.');
-                CFS_open_mouth_count = CFS_open_mouth_count + 1;
-            elseif strendswith(this_trial, 'FEAR')
-                filename_Face       = strrep(strcat(CFS_specs.FacesFolder, strrep(filename(filename_neutral), 'neut', 'fear')), '2.', '1.');
-                CFS_open_mouth_count = CFS_open_mouth_count + 1;
-            end
-        end
-        
-        
-        filename_Faces{t}   = filename_Face;
-        
-        assignin('base', 'ds', DS);
-
-        %% Prepare the CFS RAMP as a series of images
-        timeStart = 0;
-        CFSQuadrant.addImage( timeStart, 'FIXED', filename_Mondrian, 'RANDOM_QUADRANT', filename_Face );
-        duration = 1 / CFS_Frequency;
-
-        % This marks the prior NOMDOMINANT image as the one for query and contrast modification
-        %  See use of getQueryImageState() below
-        CFSQuadrant.setQueryImage('NONDOMINANT');
-
-        fprintf('\n\tAdding CFS frames...');
-        for f = 1:CFS_Nframes
-            %fprintf('\nAdding frame %d', f);
-            timeStart = timeStart + duration;
-            filename_Mondrian   = fileNames_Mondrian.getElementRandomNoReplacement();
-            CFSQuadrant.addImage( timeStart, 'FIXED', filename_Mondrian, 'UNCHANGED', 'N/A' );
-        end
-        fprintf('Done');
-
-        % Allow input during CFS trial (user hits ANY key to interrupt)
-        CFSQuadrant.setAllowInput(true, 'ANY_KEY');
-
-        % Enable contrast ramping for the series of images (CFS)
-        %  Note: some specifications are set via CFS_Ramp.m GUI
-        fprintf('\n\tCalculating contrast ramps...');
-        CFSQuadrant.setContrastRamp( true, ContrastUpdateFrequency, ...
-            piecewiseContrast_Dom, piecewiseContrast_NonDom);
-        fprintf('Done');
-
-        % Add time series to the display session ONLY after settings are applied
-        DS.addNewTimeSeries(CFSQuadrant);
-
-        %% After the CFS ramp is done
-        % Backwards mask
-        DS.addStep('DELAY', 'STEREO', 'data/backwardsMask.bmp', 'data/backwardsMask.bmp', 0.5);
-
-        % Only request the quadrant guess from the participant if desired
-        if( REQUEST_QUADRANT_GUESS )    
-            % Ask the participant what quadrant the image was in
-            DS.addStep('INPUT', 'STEREO', 'data/instructions-what_quadrant-keyboard.png', 'data/instructions-what_quadrant-keyboard.png')
-
-            % Show backwards mask again after the user presses a key
-            DS.addStep('DELAY', 'STEREO', 'data/backwardsMask.bmp', 'data/backwardsMask.bmp', 0.01);
-        end
-
-        %% Setup is complete, wait remaining time before starting this trial
-        time_setupTrial = toc(time_startTrial);
-        setupTimes(t)   = time_setupTrial;
-
-        if( time_setupTrial < InterTrialDelay )
-            fprintf('\n\tSetup took %0.1f sec, waiting an additional %0.1f sec', ...
-                time_setupTrial, InterTrialDelay-time_setupTrial);
-            WaitSecs(InterTrialDelay-time_setupTrial);        
-        else
-            fprintf('\n\t!! Setup took %0.1f sec, which is longer than desired inter-trial delay (%0.1f sec)', ...
-                time_setupTrial, InterTrialDelay);        
-        end
-
-        %% Start the trial that was set up above
-        fprintf('\n\tImage: %s', filename_Faces{t});
-        if( t == 1 )
-            DS.displayStep(1);
-        else            
-            DS.nextStepDisplay();
-        end
-        
-        %% Remove necessary objects from their respective Sets to avoid repeats
-        % -> If neutral face was mouth closed, remove the open mouth of the
-        %    same model, or vice versa
-        % -> Remove scenario that corresponds to the opposite gender
-        
-        if IsScenarioMale(filename_scenario)
-            if strcmpi(ScenWhichEmotion(filename_scenario), 'SAD')
-                fileNames_ScenarioFemaleSad.removeElement(strrep(filename_scenario, 'he', 'she'));
-            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'HAPPY')
-                fileNames_ScenarioFemaleHappy.removeElement(strrep(filename_scenario, 'he', 'she'));
-            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'FEAR')
-                fileNames_ScenarioFemaleFear.removeElement(strrep(filename_scenario, 'he', 'she'));
-            end
-        else
-            if strcmpi(ScenWhichEmotion(filename_scenario), 'SAD')
-                fileNames_ScenarioMaleSad.removeElement(strrep(filename_scenario, 'she', 'he'));
-            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'HAPPY')
-                fileNames_ScenarioMaleHappy.removeElement(strrep(filename_scenario, 'she', 'he'));
-            elseif strcmpi(ScenWhichEmotion(filename_scenario), 'FEAR')
-                fileNames_ScenarioMaleFear.removeElement(strrep(filename_scenario, 'she', 'he'));
-            end
-        end
-        
-        if IsModelMouthOpen(filename_neutral)
-            fileNames_NeutralClosed.removeElement(strrep(filename_neutral, '2', '1'));
-        else
-            fileNames_NeutralOpen.removeElement(strrep(filename_neutral, '1', '2'));
-        end
-        %% Trial is completed, analyze the results
-        %  The participant pressed either ONE or TWO keys
-        %  First, ANY key to stop the CFS Ramp
-        %  Second, if REQUEST_QUADRANT_GUESS is true, a key to guess which quadrant the image was in
-        
-        % Check what quadrant was used for display
-        quadrantDisplayed(t) = DS.getLastQueryProperty( 'QUADRANT' );        
-        fprintf('\n\tQuadrant displayed: %d', quadrantDisplayed(t));
-        
-        % Check what type of trial this was
-        fprintf('\n\tTrial Type: %s', this_trial);
-        
-        % Check which model was used
-        fprintf('\n\tModel ID: %s', GetModelId(filename_Face));
-        
-        % Retrieve the name of the model
-        fprintf('\n\tModel Name: %s', GetModelName(filename_Face));
-        
-        % Check if initial mouth was open or closed
-        if IsModelMouthOpen(filename_neutral)
-            fprintf('\n\tInitial Mouth: Open');
-        else
-             fprintf('\n\tInitial Mouth: Closed');
-        end
-        
-        % Check if CFS mouth was open or closed
-        if IsModelMouthOpen(filename_Face)
-            fprintf('\n\tCFS Mouth: Open');
-        else
-             fprintf('\n\tCFS Mouth: Closed');
-        end
-        
-        %%%% Check what the input rating was %%%%
-
-        % Get the TIME of keypress during the CFS ramp
-        % If the user guessed a quadrant...
-        if( REQUEST_QUADRANT_GUESS )
-            % ...then ANY key is the 2nd to last response
-            recencyIndex = 2;
-        else
-            % ...otherwise ANY key is the most recent reponse
-            recencyIndex = 1;
-        end
-
-        [VOID, response_time] = DS.getRecentResponse(recencyIndex);
-        if( ~isnan(response_time) )
-            fprintf('\n\tRamp interruption time (sec): %f', response_time);
-        else
-            fprintf('\n\tRamp NOT interrupted');
-        end
-
-        % Store the time of keypress
-        responseTimes(t)    = response_time;
-
-        % If the user guessed a quadrant...
-        if( REQUEST_QUADRANT_GUESS )
-            % ...this is the most recent response (1st to last)
-            recencyIndex = 1;
-            [response_value, VOID] = DS.getRecentResponse(recencyIndex);
-
-            if( ~isnan(response_value) )
-                fprintf('\n\tQuadrant guess: %d', response_value);
-
-                if( response_value == quadrantDisplayed(t) )
-                    fprintf(' (Correct)');
+            
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Set the step type
+            obj.step_type{s} = step_type;
+            
+            if( strcmp(step_type,'DELAY') )
+                if( nargin ~= 6 || ~isnumeric(varargin{1}) )
+                    error('Must supply delay_time in seconds for DELAY step (last argument to addStep())');
                 else
-                    fprintf(' (Incorrect)');
+                    obj.delay_time(s) = varargin{1};
                 end
-            else
-                fprintf('\n\tNo key was pressed');
             end
+            
+            switch step_type
+                case {'INPUT', 'NAVIGATE', 'DELAY'}
+                       
+                    % Load the dom image
+                    obj.filename_dom{s}    = filename_dom;
+                    obj.image_dom{s}       = imread(filename_dom);
+                    obj.texture_dom{s}     = Screen('MakeTexture', obj.WINDOW, obj.image_dom{s});
 
-            % Store the guessed quadrant
-            responseValues(t)   = response_value;
 
-        else        
-            % ...otherwise, the user did NOT guess a quadrant
-            % Store the guessed quadrant
-            response_value      = 0;
-            responseValues(t)   = 0;
+                    % Get presentation mode
+                    % TODO % Parse presentation mode for stereo/mono
+                    obj.presentation_mode{s}    = presentation_mode;
 
-            fprintf('\n\tNo quadrant guess requested');
+                    % Check if this step is stero mode or not
+                    obj.is_stereo{s} = strcmpi(presentation_mode,'STEREO');
+
+                    % Only save the nondom image if it is stereo mode
+                    if( obj.is_stereo{s} )                
+                        % Load the image
+                        obj.filename_nondom{s}   = filename_nondom;
+                        obj.image_nondom{s}      = imread(filename_nondom);
+                        obj.texture_nondom{s}    = Screen('MakeTexture', obj.WINDOW, obj.image_nondom{s});
+
+                    % No image to load for nondom
+                    else
+                        obj.filename_nondom{s}   = 'NULL';
+                        obj.image_nondom{s}      = NaN;
+                        obj.texture_nondom{s}    = NaN;
+                    end           
+                    
+                case 'TIMESERIES'
+                    error('Use addTimeSeries(SITS) instead');
+                    
+                case 'EXIT'
+                    % Nothing more to store
+                    
+                otherwise
+                    error('Invalid step type specified');
+                    
+            end
         end
-
-        %% Cleanup used textures to save memory
-        fprintf('\n\tFlushing textures...');
-        DS.flushMostRecentSITSTextures();
-        DS.flushAllTextures();
-        fprintf('Done');
         
-        %% Write the log file (2011/07/20)
-        % This is done after each trial in case the program crashes
-        fprintf('\n\tWriting log file...');
+        %{
+        function addLinkedTimeSeries( obj, SITS )
+            %% Add a linked stereo-image time series to the display session
+            % This is NOT a new copy, but a link to the input instance
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Do NOT copy the % Copy the submitted time series, so it can hold unique values
+            % regarding items which are displayed (e.g., random quadrants)
+            obj.step_type{s}    = 'TIMESERIES';            
+            obj.SITS{s}         = SITS;
+            
+        end
+        %}
         
-        % Create file for log
-        outputfile = sprintf('%s/log.txt', output_dir);
-        FILE = fopen(outputfile, 'w');
-
-        % Header for the log file
-        writeSpecificationsHeader( FILE, CFS_specs );
-
-        % User responses
-        fprintf(FILE, '\n\nResults of participant session');
-        fprintf(FILE, '\nResponseValue\tMeaning');
-        fprintf(FILE, '\nNaN\tParticipant never pressed ANY key during contrast ramp');
-        fprintf(FILE, '\n0\tNo quadrant guess was requested');
-        fprintf(FILE, '\n1-4\tQuadrant 1-4 was guessed');
-        fprintf(FILE, '\n%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s', ...
-            'TrialNumber', ...
-            'ImageDisplayed', ...
-            'QuadrantDisplayed(1-4)', ...
-            'ResponseValue(1-4)', ...
-            'Correct?', ...
-            'ResponseTime(Sec)', ...
-            'ContrastLog10(Dominant)', ...
-            'ContrastLog10(Non-Dominant)', ...
-            'SetupTime(sec)' );
-
-        NtrialsCompleted = t;
-        for t_log = 1:NtrialsCompleted   
-            fprintf(FILE, '\n%d\t%s\t%d\t%d\t%d\t%f\t%f\t%f\t%f', ...
-                t_log, ...
-                filename_Faces{t_log}, ...
-                quadrantDisplayed(t_log), ...
-                responseValues(t_log), ...
-                quadrantDisplayed(t_log)==responseValues(t_log), ...
-                responseTimes(t_log), ...
-                piecewiseContrast_Dom.getY(responseTimes(t_log)), ...
-                piecewiseContrast_NonDom.getY(responseTimes(t_log)), ...
-                setupTimes(t_log) );
+        function addNewTimeSeries( obj, SITS )
+            %% Add a NEW stereo-image time series to the display session
+            % This is a copy of the input time series
+            obj.Nsteps  = obj.Nsteps+1;
+            s           = obj.Nsteps;
+            
+            % Copy the submitted time series, so it can hold unique values
+            % regarding items which are displayed (e.g., random quadrants)
+            obj.step_type{s}    = 'TIMESERIES';            
+            obj.SITS{s}         = SITS.copy();
+            
         end
-        fclose(FILE);
-        fprintf('Done');
+        
+        function [WINDOW, windowRect] = createWindow( obj, rect_windowed, stereoMode )
+            %% Create a new PTB window
+            % rect_windowed = size of the display window
+            %  2D coordinates of top-left and bottom-right corner
+            %  For full-screen, set this to [], as below
+            
+            % If no arguments are given, use a full-screen non-stereo window
+            if( nargin == 0 )
+                rect_windowed = [];
+                stereoMode = 0;
+            end
+            
+            try
+            
+                % COPY FROM PTB StereoDemo.m
+                % Get the list of Screens and choose the one with the highest screen number.
+                % Screen 0 is, by definition, the display with the menu bar. Often when
+                % two monitors are connected the one without the menu bar is used as
+                % the stimulus display.  Chosing the display with the highest dislay number is
+                % a best guess about where you want the stimulus displayed.
+                scrnNum = max(Screen('Screens'));
 
-        %% Exit the loop if needed
-        if( response_value == -1 )
-            break;
+                %{
+                % Windows-Hack: If mode 4 or 5 is requested, we select screen zero
+                % as target screen: This will open a window that spans multiple
+                % monitors on multi-display setups, which is usually what one wants
+                % for this mode.
+                if IsWin & (stereoMode==4 | stereoMode==5)
+                   scrnNum = 0;
+                end
+                %}
+
+                % Dual display dual-window stereo requested?
+                if stereoMode == 10
+                    % Yes. Do we have at least two separate displays for both views?
+                    if length(Screen('Screens')) < 2
+                        error('Sorry, for stereoMode 10 you''ll need at least 2 separate display screens in non-mirrored mode.');
+                    end
+
+                    if ~IsWin
+                        % Assign left-eye view (the master window) to main display:
+                        scrnNum = 0;
+                    else
+                        % Assign left-eye view (the master window) to main display:
+                        scrnNum = 1;
+                    end
+                end
+
+                % Open double-buffered onscreen window with the requested
+                % stereo mode:
+                window_black = BlackIndex(scrnNum);
+                window_white = WhiteIndex(scrnNum);
+                window_gray  = round(window_black + (window_white - window_black)/2);
+                [WINDOW, windowRect]=Screen('OpenWindow', scrnNum, window_gray, rect_windowed, [], [], stereoMode);            
+                obj.WINDOW = WINDOW;
+
+
+                if stereoMode == 10
+                    % In dual-window, dual-display mode, we open the slave window on
+                    % the secondary screen. Please note that, after opening this window
+                    % with the same parameters as the "master-window", we won't touch
+                    % it anymore until the end of the experiment. PTB will take care of 
+                    % managing this window automatically as appropriate for a stereo
+                    % display setup. That is why we are not even interested in the window
+                    % handles of this window:
+                    if IsWin
+                        slaveScreen = 2;
+                    else
+                        slaveScreen = 1;
+                    end
+                    Screen('OpenWindow', slaveScreen, BlackIndex(slaveScreen), [], [], [], stereoMode);
+                end
+
+                % Set up alpha-blending for smooth (anti-aliased) drawing of dots:
+                Screen('BlendFunction', WINDOW, 'GL_SRC_ALPHA', 'GL_ONE_MINUS_SRC_ALPHA');
+                
+                
+                % Now that the window is set, update textures
+                obj.updateTextures();
+                
+            catch
+                % Executes in case of an error: Closes onscreen window:
+                Screen('CloseAll');
+                psychrethrow(psychlasterror);
+            end
         end
-    end   
+        
+        
+        function displayCurrentStep( obj )
+            %% Displays the current step
+            s = obj.current_step;
+            
+            quadrant = 0;
+            
+            % Load the image
+            switch obj.step_type{s}
+                case {'INPUT', 'NAVIGATE', 'DELAY'}
+                    
+                    % Display the step
+                    if( obj.is_stereo{s} )
+                        % Draw dom image
+                        Screen('SelectStereoDrawBuffer', obj.WINDOW, obj.DOM_DISPLAY);
+                        Screen('DrawTexture', obj.WINDOW, obj.texture_dom{s}, [], ...
+                            obj.getDestinationRect( obj.image_dom{s}, quadrant ));
+                        %%%%%%%% UNTESTED %%%%%%%%%
+                        %Screen('DrawText', strcat('This is', GetModelName(filename(obj.filename_nondom{s}))));
+                        
+                        % Draw a framing rectangle, if desired
+                        if( obj.DRAW_FRAMING_RECTANGLE )
+                            % Display a rectangular frame on top of the texture                            
+                            Screen('FrameRect', obj.WINDOW, obj.frame_Color, obj.frame_Rect, obj.frame_Width);
+                        end
 
-    %% Close the onscreen window
-    Priority(0);
-    Screen('CloseAll')
+                        % Draw nondom image
+                        Screen('SelectStereoDrawBuffer', obj.WINDOW, obj.NONDOM_DISPLAY );                
+                        Screen('DrawTexture', obj.WINDOW, obj.texture_nondom{s}, [], ...
+                            obj.getDestinationRect( obj.image_nondom{s}, quadrant ));
+                                                                        
+                        % Draw a framing rectangle, if desired
+                        if( obj.DRAW_FRAMING_RECTANGLE )
+                            % Display a rectangular frame on top of the texture                            
+                            Screen('FrameRect', obj.WINDOW, obj.frame_Color, obj.frame_Rect, obj.frame_Width);
+                        end
 
-    %% Plot values
-    LINEWIDTH   = 3;
-    FONTSIZE    = 16;
-    MARKERSIZE  = 10;
+                    else
+                        % Display full mode (not stereo)
+                        % TODO % Display full mode (not stereo) - not sure
+                        % how to do this without creating a new Screen :-/
+                    end                    
+            end
+            
+            % Display the image
+            switch obj.step_type{s}
+                case {'INPUT', 'NAVIGATE'}
+                    % Update the display
+                    Screen('Flip', obj.WINDOW );
 
-    %% Plot timecourse
-    hfig    = figure;
-    hax     = axes;
-    set(hax, 'LineWidth', LINEWIDTH-1, 'FontSize', FONTSIZE);
-    hold(hax, 'all');
+                    % Mark the time at which this step was started
+                    Nsd                         = obj.pp_Nsteps+1;
+                    obj.pp_Nsteps               = Nsd;
+                    obj.pp_steps_traversed(Nsd) = s;
 
-    legendString = {};
-    legendHandles = [];
-
-    keyXY       = piecewiseContrast_Dom.getKeys();
-    timeStart   = min(keyXY(:,1));
-    timeEnd     = max(keyXY(:,1));
-    xvalues     = linspace(timeStart, timeEnd, 50);
-
-    legendHandles(end+1) = plot(hax, xvalues, piecewiseContrast_Dom.getY(xvalues), '-k', ...
-        'LineWidth', LINEWIDTH);
-    legendString{end+1} = 'Dominant Eye';
-
-    %plot(hax, keyXY(:,1), keyXY(:,2), 'ok', 'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-
-    % Nondominant eye
-    keyXY       = piecewiseContrast_NonDom.getKeys();
-    timeStart   = min(keyXY(:,1));
-    timeEnd     = max(keyXY(:,1));
-    xvalues     = linspace(timeStart, timeEnd, 50);
-
-    legendHandles(end+1) = plot(hax, xvalues, piecewiseContrast_NonDom.getY(xvalues), '--r', ...
-        'LineWidth', LINEWIDTH);
-    legendString{end+1} = 'Non-Dominant Eye';
-
-    % Mark key points
-    %plot(hax, keyXY(:,1), keyXY(:,2), 'sr', 'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-
-    % Mark each keypress
-    %  Note: responseValues = 0 implies NO quadrant guess was requested
-    trialIsCorrect  = (responseValues == quadrantDisplayed) .* (responseValues ~= 0);
-    tCorrect        = find(trialIsCorrect);
-    if( ~isempty(tCorrect) )
-        NX      = length(tCorrect);
-        X       = NaN*ones(1,NX);
-        Y       = NaN*ones(1,NX);
-        X(1:NX) = responseTimes(tCorrect);
-        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
-
-        legendHandles(end+1) = plot(hax, X, Y, 'ok', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'Correct';
-    end
-
-    trialIsIncorrect  = (responseValues ~= quadrantDisplayed) .* (responseValues ~= 0);
-    tIncorrect      = find(trialIsIncorrect);
-    if( ~isempty(tIncorrect) )
-        NX      = length(tIncorrect);
-        X       = NaN*ones(1,NX);
-        Y       = NaN*ones(1,NX);
-        X(1:NX) = responseTimes(tIncorrect);
-        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
-
-        legendHandles(end+1) = plot(hax, X, Y, 'xk', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'Incorrect';
-    end
-
-    trialNoQuadrantRequested    = responseValues == 0;
-    tNoQuadrant                 = find(trialNoQuadrantRequested);
-    if( ~isempty(tNoQuadrant) )
-        NX      = length(tNoQuadrant);
-        X       = NaN*ones(1,NX);
-        Y       = NaN*ones(1,NX);
-        X(1:NX) = responseTimes(tNoQuadrant);
-        Y(1:NX) = piecewiseContrast_NonDom.getY(X);
-
-        legendHandles(end+1) = plot(hax, X, Y, 'sk', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'No Quadrant Requested';
-    end
-
-    xlabel(hax, 'Time (sec)');
-    ylabel(hax, 'Log_{10}(Contrast)');
-    box(hax, 'on');
-    legend(legendHandles, legendString, 'Location', 'Best');
-
-    print(hfig, '-depsc', sprintf('%s/timecourse-responses.eps', output_dir));
-    close(hfig);
-
-    %% Next plot on reponse values for each trial
-    hfig    = figure;
-    hax     = axes;
-    set(hax, 'LineWidth', LINEWIDTH-1, 'FontSize', FONTSIZE);
-    hold(hax, 'all');
-
-    legendString    = {};
-    legendHandles   = [];
-
-    % Mark each keypress
-    trialIsCorrect = responseValues == quadrantDisplayed;
-
-    % Correct responses
-    X   = find(trialIsCorrect .* (responseValues~=0));
-    if( ~isempty(X) )
-        Y   = responseTimes(X);
-        legendHandles(end+1) = plot(hax, X, Y, 'ok', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'Correct';
-    end
-
-    % Incorrect responses
-    X   = find(~trialIsCorrect .* (responseValues~=0));
-    if( ~isempty(X) )
-        Y   = responseTimes(X);
-        legendHandles(end+1) = plot(hax, X, Y, 'xk', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'Incorrect';
-    end
-
-    % No response requested
-    X   = find(responseValues == 0);
-    if( ~isempty(X) )
-        Y   = responseTimes(X);
-        legendHandles(end+1) = plot(hax, X, Y, 'sk', ...
-            'LineWidth', LINEWIDTH, 'MarkerSize', MARKERSIZE);
-        legendString{end+1} = 'No Quadrant Requested';
-    end
-
-    xlabel(hax, 'Trial Number');
-    ylabel(hax, 'Reponse Time (sec)');
-    box(hax, 'on');
-    legend(legendHandles, legendString, 'Location', 'Best');
-
-
-    YLIM = get(hax,'YLim');
-    set(hax, 'YLim', [0, YLIM(2)]);
-
-    print(hfig, '-depsc', sprintf('%s/trials-response_times.eps', output_dir));
-    close(hfig);
+                    if( Nsd == 1 )
+                        obj.start_tic                   = tic;
+                        obj.pp_etime(Nsd)    = 0;
+                    else
+                        obj.pp_etime(Nsd)    = toc(obj.start_tic);
+                    end
+                                                            
+                    % Now wait to store input                    
+                    received_input = false;
+                    
+                    % Log the start time
+                    response_time_start = tic;
+                    
+                    % Wait until all keys are released
+                    while KbCheck; end
+                    
+                    while ~received_input
     
-    
-    %% Stop logging command window output
-    diary('off');
-end
+                        % Pause may be helpful for timing
+                        %pause(0.01);
 
-function writeSpecificationsHeader( OUTPUTSTREAM, CFS_specs )
-    %% Write the header information
+                        % Check the state of the keyboard.
+                        [ keyIsDown, seconds, keyCode ] = KbCheck;        
+                        if( keyIsDown )
 
-    fprintf(OUTPUTSTREAM, 'Continuous Flash Suppression (CFS) Contrast Ramp Pilot Program');
-    fprintf(OUTPUTSTREAM, '\nVersion\t%s', CFS_specs.SoftwareVersion);
-    fprintf(OUTPUTSTREAM, '\nIan Kleckner\nInterdisciplinary Affective Science Lab (IASL)');
-    fprintf(OUTPUTSTREAM, '\nAdapted by Zachary Tweed');    
-    fprintf(OUTPUTSTREAM, '\nLog last updated\t%s', datestr(now));
-    fprintf(OUTPUTSTREAM, '\nParticipant id\t%s', CFS_specs.PPid);
-    fprintf(OUTPUTSTREAM, '\nParticipant dominant eye\t%s', CFS_specs.DominantEyeString);
-    fprintf(OUTPUTSTREAM, '\nInter-trial delay (sec)\t%f', CFS_specs.InterTrialDelay);
-    fprintf(OUTPUTSTREAM, '\nDesired percent of trials in which user guesses quadrant\t%d', CFS_specs.RequestQuadrantPercent);
-    fprintf(OUTPUTSTREAM, '\nFaces source folder\t%s', CFS_specs.FacesFolder);
-    fprintf(OUTPUTSTREAM, '\nMondrian source folder\t%s', CFS_specs.MondrianFolder);
+                            % NAVIGATE steps can move slides forward or
+                            % backward
+                            if( strcmpi(obj.step_type{s}, 'NAVIGATE') )
+                                if( keyCode(obj.nextKey) )
+                                    % Mark the user proceeds
+                                    %  This will be over-written if the
+                                    %  navigation repeats this step "s"
+                                    %obj.response_value(s)    = 1;
+                                    %obj.response_time(s)     = toc(response_time_start);
+                                    
+                                    received_input = true;
+                                    obj.nextStepDisplay();              
 
-    fprintf(OUTPUTSTREAM, '\nContrast update frequency (Hz)\t%f', CFS_specs.ContrastUpdateFrequency);
-    fprintf(OUTPUTSTREAM, '\nHide mouse pointer\t%d', CFS_specs.HideMousePointer);
-    fprintf(OUTPUTSTREAM, '\nFull-screen mode\t%d', CFS_specs.FullScreenMode);
-    fprintf(OUTPUTSTREAM, '\nMinimum window border percent\t%d', CFS_specs.MinBorderPercent);
+                                elseif( keyCode(obj.previousKey) )
+                                    % Mark the user retredes
+                                    %  This will be over-written if the
+                                    %  navigation repeats this step "s"
+                                    %obj.response_value(s)    = -1;
+                                    %obj.response_time(s)     = toc(response_time_start);
+                                    
+                                    received_input = true;
+                                    
+                                    % Go to prior step, then re-display
+                                    %  This re-display ensures the user
+                                    %  cannot exit the display loop by
+                                    %  going too far backwards
+                                    obj.previousStep();
+                                    obj.displayCurrentStep();
+                                else
+                                    % Invalid key
+                                    
+                                end
+                                
+                            % If this step is for INPUT, then check for a
+                            % valid keypress
+                            elseif( strcmpi(obj.step_type{s}, 'INPUT') )
+                                % Check each valid responseKey
+                                for k = 1:length(obj.responseKeys)                                    
+                                    if( keyCode(obj.responseKeys{k}) )
+                                        % Found a valid key
+                                        %  Store the response value
+                                        %obj.response_value(s)    = responseValues(k);
+                                        %obj.response_time(s)     = toc(response_time_start);
+                                        
+                                        obj.pp_response_value(obj.pp_Nsteps)    = obj.responseValues(k);
+                                        obj.pp_response_time(obj.pp_Nsteps)     = toc(response_time_start);
+                                        
+                                        received_input = true;
+                                        obj.nextStepDisplay();
+                                        
+                                        % Exit the for loop early
+                                        break;
+                                    end                                    
+                                end
+                            end
+                        end
+                    end
+                    
+                    % Show the current step, if there 
+                    %if( obj.current_step < obj.Nsteps && ~keyCode(escapeKey) )
+                    %    obj.displayCurrentStep();
+                    %end        
+                    
+                case 'DELAY'
+                    % Update the display
+                    Screen('Flip', obj.WINDOW );
+                    
+                    % Wait some time
+                    WaitSecs(obj.delay_time(s));
+                    
+                    % Proceed to next step
+                    obj.nextStepDisplay();
+                    
+                case 'TIMESERIES'
+                    % Mark the time at which this step was started
+                    Nsd                         = obj.pp_Nsteps+1;
+                    obj.pp_Nsteps               = Nsd;
+                    obj.pp_steps_traversed(Nsd) = s;
 
-    % Contrast ramp specs
-    fprintf(OUTPUTSTREAM, '\n\nKey points for linear contrast ramps');
-    fprintf(OUTPUTSTREAM, '\nDominant Eye');
-    fprintf(OUTPUTSTREAM, '\nTime(sec)\tContrastLog10');
-    keyXY = CFS_specs.piecewiseContrast_Dom.getKeys();
-    for k = 1:size(keyXY,1)
-        fprintf(OUTPUTSTREAM, '\n%f\t%f', keyXY(k,1), keyXY(k,2));
+                    if( Nsd == 1 )
+                        obj.start_tic                   = tic;
+                        obj.pp_etime(Nsd)    = 0;
+                    else
+                        obj.pp_etime(Nsd)    = toc(obj.start_tic);
+                    end
+                    
+                    % Call the timeseries display
+                    obj.SITS{s}.displayCurrentStep();
+                    
+                    % Store query image info from the timeseries sequence                    
+                    obj.pp_SITS_specs{obj.pp_Nsteps} = obj.SITS{s}.getSpecs();
+                    
+                    % Store the input from the participant
+                    [inputReceived, keyPress_Time, keyPress_Value] = obj.SITS{s}.getInput();
+                    if( inputReceived )
+                        obj.pp_response_value(s)   = keyPress_Value;
+                        obj.pp_response_time(s)    = keyPress_Time;                                                
+                    end
+                                       
+                    % Display the next step
+                    if( obj.current_step < obj.Nsteps )
+                        obj.nextStep();
+                        obj.displayCurrentStep();
+                    end
+                    
+                case 'EXIT'
+                    % Merely exit this function
+                    
+                otherwise
+                    error('Attempted to display an invalid step type');
+            end
+            
+            
+        end
+        
+        function displayStep( obj, step )
+            %% Return to first step
+            obj.current_step = step;
+            obj.displayCurrentStep();            
+        end
+        
+        function flushMostRecentSITSTextures(obj)
+            %% Flush ONLY the most recent SITS textures
+            for s = obj.Nsteps:-1:1
+                % Check if the SITS exists before trying to flush it
+               if( length(obj.SITS) >= s && isa(obj.SITS{s}, 'StereoImageTimeSeries') )
+                   obj.SITS{s}.flushAllTextures();
+                   return
+               end
+            end
+        end
+        
+        function flushAllTextures(obj)
+            %% Clear ALL the textures that are already loaded         
+            % 2011/07/14 Start coding
+            
+            for s = 1:obj.Nsteps                
+                %fprintf('\nChecking step %d', s);
+                
+                % Check if the texture exists, then try to close it
+                tex = obj.texture_dom{s};
+                if( ~isempty(tex) )
+                    Screen('Close', tex);
+                    obj.texture_dom{s} = [];
+                    %fprintf('...closed!');
+                else
+                    %fprintf('...no texture');
+                end
+
+                tex = obj.texture_nondom{s};                    
+                if( ~isempty(tex) )
+                    Screen('Close', tex);
+                    obj.texture_nondom{s} = [];
+                end
+            end            
+        end
+        
+        function destinationRect = getDestinationRect( obj, IMAGE, quadrant )
+            %% Calculate a destination rectangle to scale image size
+            %  to fit in display window with desired minimum border size
+            %  IMAGE is the image (to get its dimensions)
+            %  quadrant (1,2,3,4) places image in just one of the quadrants
+            %  and any other value uses all four quadrants
+            %
+            % destinationRect = [X_Left, Y_Top, X_Width, Y_Height]
+            
+            minBorderFraction = obj.minBorderPercent / 100;
+
+            % Get IMAGE dimensions
+            imageDims   = size(IMAGE);
+            imageX      = imageDims(2);
+            imageY      = imageDims(1);            
+
+            % Get screen dimensions
+            windowDims  = Screen('Rect', obj.WINDOW);            
+            windowX     = windowDims(3);
+            windowY     = windowDims(4);
+
+            % Aspect ratio is width / height
+            imageAR     = imageX / imageY;
+            windowAR    = windowX / windowY;            
+
+            % If the image has larger AR than window, then the X border is
+            % the smaller than Y border
+            if( imageAR > windowAR )
+
+                % The X border is smaller than the Y border
+                borderX     = minBorderFraction * windowX;
+                imageSizeX  = windowX - 2*borderX;                
+
+                % Now calculate the Y border, fixing the image aspect ratio
+                imageSizeY   = imageSizeX / imageAR;
+                borderY      = (windowY - imageSizeY)/2;
+
+            else                
+                % The Y border is smaller than the X border
+                borderY     = minBorderFraction * windowY;
+                imageSizeY  = windowY - 2*borderY;
+
+                % Now calculate the X border, fixing the image aspect ratio
+                imageSizeX   = imageSizeY * imageAR;
+                borderX      = (windowX - imageSizeX)/2;                                
+            end            
+
+            % Place the image in quadrant 1, 2, 3, 4, or all four
+            switch quadrant
+                % _Quadrants_
+                %   II | I
+                %  ----|----
+                %  III | IV
+                %
+                case 1
+                    destinationRect = [borderX + imageSizeX/2, ...
+                                       borderY, ...
+                                       borderX + imageSizeX, ...
+                                       borderY + imageSizeY/2];
+
+                case 2
+                    destinationRect = [borderX, ...
+                                       borderY, ...
+                                       borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY/2];
+
+                case 3
+                    destinationRect = [borderX, ...
+                                       borderY + imageSizeY/2, ...
+                                       borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY];
+
+                case 4
+                    destinationRect = [borderX + imageSizeX/2, ...
+                                       borderY + imageSizeY/2, ...
+                                       borderX + imageSizeX, ...
+                                       borderY + imageSizeY];
+
+                otherwise
+                    if ~isequal(obj.filename_nondom(obj.current_step), {[]})
+                        if IsImageScen(obj.filename_nondom(obj.current_step))
+                            destinationRect = [borderX - imageSizeX/2, ...
+                                               borderY - imageSizeY/2, ...
+                                               borderX + (imageSizeX * 1.5), ...
+                                               borderY + (imageSizeY * 1.5)];
+                        elseif IsImageModel(obj.filename_nondom(obj.current_step))
+                            destinationRect = [borderX, ...
+                                               borderY, ...
+                                               borderX + imageSizeX/2, ...
+                                               borderY + imageSizeY/2];
+                        else destinationRect = [borderX, ...
+                                borderY, ...
+                                borderX + imageSizeX, ...
+                                borderY + imageSizeY];
+                        end
+                    % Full
+                    % Now stretch the image to allow minimum border
+                    else destinationRect = [borderX, ...
+                            borderY, ...
+                            borderX + imageSizeX, ...
+                            borderY + imageSizeY];
+                    end
+            end
+        end
+        
+        function [response_value, response_time] = getLastResponse( obj )
+            %% DEPRECATED Return the most recent response
+            % Note: pp_steps_traversed is used because the participant may
+            % traverse the steps forward or backward (e.g., 1, 2, 3, 2, 3, 4, 5)
+            
+            error('Function deprecated. Use getRecentResponse( recencyIndex ), where recencyIndex = 1,2,3,...');
+            %{
+            % These values will be replaced, if an INPUT step was traversed
+            response_value  = NaN;
+            response_time   = NaN;
+                           
+            % Find the most recent step traversed that was an INPUT
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type{s}, 'INPUT') )
+                    % Find the response from the this step
+                    response_value  = obj.pp_response_value(st);
+                    response_time   = obj.pp_response_time( st );
+                    return;
+                    
+                elseif( strcmpi(obj.step_type{s}, 'TIMESERIES') )
+                    if( obj.SITS{s}.ALLOW_INPUT )
+                        % Find the response from the this step
+                        response_value  = obj.SITS{s}.keyPress_Value;
+                        response_time   = obj.SITS{s}.keyPress_Time;
+                        return;
+                    end                    
+                end                    
+            end              
+            %}
+        end
+        
+        function [response_value, response_time] = getRecentResponse( obj, recencyIndex  )
+            %% Return the most recent response
+            % recencyIndex = 1,2,3,... for first, second, third,... most recent repsonse
+            
+            % Note: pp_steps_traversed is used because the participant may
+            % traverse the steps forward or backward (e.g., 1, 2, 3, 2, 3, 4, 5)
+            
+            % These values will be replaced, if an INPUT step was traversed
+            response_value  = NaN;
+            response_time   = NaN;            
+            
+            recencyIndex_current = 0;
+                           
+            % Find the most recent step traversed that was an INPUT
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type{s}, 'INPUT') )
+                    recencyIndex_current = recencyIndex_current+1;
+                    
+                    % Check if this is the desired recency index
+                    if( recencyIndex == recencyIndex_current )                    
+                        % Find the response from the this step
+                        response_value  = obj.pp_response_value(st);
+                        response_time   = obj.pp_response_time( st );
+                        return;
+                    end
+                    
+                elseif( strcmpi(obj.step_type{s}, 'TIMESERIES') )
+                    if( obj.SITS{s}.ALLOW_INPUT )
+                        recencyIndex_current = recencyIndex_current+1;
+                        
+                        % Check if this is the desired recency index
+                        if( recencyIndex == recencyIndex_current )
+                            % Find the response from the this step
+                            response_value  = obj.SITS{s}.keyPress_Value;
+                            response_time   = obj.SITS{s}.keyPress_Time;
+                            return;
+                        end
+                    end                    
+                end                    
+            end                
+        end
+        
+        function state = getLastQueryProperty( obj, property )
+            %% Return deisred property of query image for last SITS instance
+            % that was traversed by participant
+            
+            % This value will be replaced, if a TIMSERIES step was traversed
+            state = NaN;
+            
+            % Find the most recent step traversed that was a TIMESERIES
+            %  Work backwards (most recent step)
+            for st = length(obj.pp_steps_traversed):-1:1
+                
+                % Get the step number
+                s = obj.pp_steps_traversed(st);
+
+                % Check if it is an INPUT type
+                if( strcmpi(obj.step_type( s ), 'TIMESERIES') )
+                    
+                    state = obj.pp_SITS_specs{st}.getQueryImageState( property );
+                    %{
+                    switch upper(property)
+                        case 'ROTATION'     
+                            state = obj.pp_query_image_rotation( st );
+
+                        case 'QUADRANT'
+                            state = obj.pp_query_image_quadrant( st );
+
+                        case {'CONTRAST', 'CONTRASTLOG10'}
+                            state = obj.pp_query_image_contrastlog10( st );
+
+                        otherwise
+                            error('Invalid property specified');
+                    end
+                    %}
+                    return;
+                end                    
+            end     
+            
+                    
+        end
+        
+        function SITS = getLastSITS( obj )
+            %% Return the most recent instance of SteroImageTimeSeries            
+            SITS = obj.SITS{end};            
+        end
+                
+        function nextStep( obj )
+            %% Advance a step in the session
+            if( obj.current_step < obj.Nsteps )
+                obj.current_step = obj.current_step+1;
+            end            
+        end
+        
+        function nextStepDisplay( obj )
+            %% Advance a step in the session, then display if possible
+            if( obj.current_step < obj.Nsteps )
+                obj.current_step = obj.current_step+1;
+                obj.displayCurrentStep();
+            end            
+        end
+        
+        function previousStep( obj )
+            %% Recede a step in the session
+            if( obj.current_step > 1 )
+                obj.current_step = obj.current_step-1;
+            end            
+        end
+               
+        function previousStepDisplay( obj )
+            %% Recede a step in the session, then display if possible
+            if( obj.current_step > 1 )
+                obj.current_step = obj.current_step-1;
+                obj.displayCurrentStep();
+            end
+        end
+        
+        function setEyeDominance( obj, DOMINANT_EYE )
+            %% Set which eye is dominant ('LEFT' or 'RIGHT')
+            
+            switch( upper(DOMINANT_EYE) )
+                case 'LEFT'
+                    obj.DOM_DISPLAY     = obj.LEFT_DISPLAY;
+                    obj.NONDOM_DISPLAY  = obj.RIGHT_DISPLAY;                    
+                                         
+                case 'RIGHT'
+                    obj.DOM_DISPLAY     = obj.RIGHT_DISPLAY;
+                    obj.NONDOM_DISPLAY  = obj.LEFT_DISPLAY;
+                    
+                otherwise
+                    error('Invalid dominant eye specified, use \''LEFT\'' or \''RIGHT\'' only');
+            end            
+        end
+        
+        function setFramingRectangle( obj, DRAW_FRAMING_RECTANGLE, COLOR_RGB, border_percent_X, border_percent_Y, PIXEL_WIDTH )
+            %% Set the specifications for the framing rectangle
+            % DRAW_FRAMING_RECTANGLE = (true/false) Draw the rectangle
+            % COLOR_RGB = 0-255 [R G B] color triplet
+            % border_percent_X,Y = Percent of window width/height to make border
+            % PIXEL_WIDTH = Width of rectangle line in pixels            
+            
+            % To draw or not to draw...
+            obj.DRAW_FRAMING_RECTANGLE = DRAW_FRAMING_RECTANGLE;
+            
+            if( DRAW_FRAMING_RECTANGLE )
+                obj.frame_Color = COLOR_RGB;
+                obj.frame_Width = PIXEL_WIDTH;
+                
+                % The rectangle specifies the drawn frame
+                %  Using the window dimensions and desired borders
+                % RECT = [X_Left, Y_Top, X_Width, Y_Height]                
+                windowDims  = Screen('Rect', obj.WINDOW);
+                window_Width    = windowDims(3);
+                window_Height   = windowDims(4);
+                
+                border_pixels_X = ceil(border_percent_X * window_Width / 100);
+                border_pixels_Y = ceil(border_percent_Y * window_Height / 100);
+                obj.frame_Rect = [border_pixels_X, border_pixels_Y, ...
+                     window_Width-border_pixels_X, window_Height - border_pixels_Y];
+            end
+        end
+        
+        function setMinBorderPercent( obj, minBorderPercent )
+            %% Set minimum window border for scaling image display
+            obj.minBorderPercent = minBorderPercent;            
+        end
+        
+        function setWindow( obj, WINDOW )
+            %% Set the window for Psychophysics toolbox
+            obj.WINDOW = WINDOW;
+            
+            % Now that the window is set, update textures
+            obj.updateTextures();
+        end
+        
+        
+        
+        function updateTextures( obj )
+            %% Update the textures if there is a window available
+            
+            if( isnan(obj.WINDOW) )
+                error('Set window before setting texture');
+            end
+            
+            % Do not overwrite texture if it exists already
+            %  Simply start with the next available slot
+            for s = length(obj.texture_dom)+1 : obj.Nsteps
+                obj.texture_dom{s} = Screen('MakeTexture', obj.WINDOW, obj.image_dom{s});
+                
+                % Load the nondom image too, if needed
+                if( obj.is_stereo{s} )
+                    obj.texture_nondom{s} = Screen('MakeTexture', obj.WINDOW, obj.image_nondom{s});
+                else
+                    obj.texture_nondom{s} = NaN;
+                end
+            end
+        end       
     end
-
-    fprintf(OUTPUTSTREAM, '\n\nNon-Dominant Eye');
-    fprintf(OUTPUTSTREAM, '\nTime(sec)\tContrastLog10');
-    keyXY = CFS_specs.piecewiseContrast_NonDom.getKeys();
-    for k = 1:size(keyXY,1)
-        fprintf(OUTPUTSTREAM, '\n%f\t%f', keyXY(k,1), keyXY(k,2));
-    end
-
 end
