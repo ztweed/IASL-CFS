@@ -269,34 +269,34 @@ classdef StereoImageTimeSeries < handle
             SITS_copy = StereoImageTimeSeries( obj.DS );
             
             % Copy each element which should not be default value            
-            SITS_copy.Nsteps            = obj.Nsteps;
+            SITS_copy.Nsteps               = obj.Nsteps;
             
-            SITS_copy.filename_dom     = obj.filename_dom;
-            SITS_copy.filename_nondom    = obj.filename_nondom;
+            SITS_copy.filename_dom         = obj.filename_dom;
+            SITS_copy.filename_nondom      = obj.filename_nondom;
             
-            SITS_copy.image_dom        = obj.image_dom;
-            SITS_copy.image_nondom       = obj.image_nondom;
+            SITS_copy.image_dom            = obj.image_dom;
+            SITS_copy.image_nondom         = obj.image_nondom;
             
-            SITS_copy.texture_dom      = obj.texture_dom;
-            SITS_copy.texture_nondom     = obj.texture_nondom;
+            SITS_copy.texture_dom          = obj.texture_dom;
+            SITS_copy.texture_nondom       = obj.texture_nondom;
             
-            SITS_copy.source_mode_dom  = obj.source_mode_dom;
-            SITS_copy.source_mode_nondom = obj.source_mode_nondom;
+            SITS_copy.source_mode_dom      = obj.source_mode_dom;
+            SITS_copy.source_mode_nondom   = obj.source_mode_nondom;
             
-            SITS_copy.random_style_dom  = obj.random_style_dom;
+            SITS_copy.random_style_dom     = obj.random_style_dom;
             SITS_copy.random_style_nondom  = obj.random_style_nondom;
             
-            SITS_copy.query_step        = obj.query_step;
-            SITS_copy.query_image       = obj.query_image;
-            SITS_copy.query_side        = obj.query_side;            
-            SITS_copy.query_contrast    = obj.query_contrast;   
+            SITS_copy.query_step           = obj.query_step;
+            SITS_copy.query_image          = obj.query_image;
+            SITS_copy.query_side           = obj.query_side;            
+            SITS_copy.query_contrast       = obj.query_contrast;   
             
-            SITS_copy.time_zero        = obj.time_zero;
+            SITS_copy.time_zero            = obj.time_zero;
             SITS_copy.time_zero_tic        = obj.time_zero_tic;
-            SITS_copy.start_time        = obj.start_time;
+            SITS_copy.start_time           = obj.start_time;
             
-            SITS_copy.ALLOW_INPUT        = obj.ALLOW_INPUT;
-            SITS_copy.INPUT_MODE        = obj.INPUT_MODE;
+            SITS_copy.ALLOW_INPUT          = obj.ALLOW_INPUT;
+            SITS_copy.INPUT_MODE           = obj.INPUT_MODE;
             %SITS_copy.keyPress_Time        = obj.keyPress_Time;
             %SITS_copy.keyPress_String        = obj.keyPress_String;
             
